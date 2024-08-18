@@ -27,10 +27,11 @@ The following commands require at least one port name to be passed.
     i | add | install :
                     For new installs only. Configure, build and install the requested port(s).
     r | u | reinstall | update :
-                  For ports already installed. Reinstall / update the requested port(s).
+                    For ports already installed. Reinstall / update the requested port(s).
     s | showconf  : Show the configuration options for a port only.
 
 Port name is the "base name" of the port. You do not need to included the current version or the new version numbers. For example, to update vim to the latest version (assuming already installed):
+
     app.sh r vim
 
 Known issues:
