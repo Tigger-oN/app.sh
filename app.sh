@@ -1,19 +1,20 @@
 #!/bin/sh
+# Helper script for working with the local ports tree.
 # 
-# App version
+# Version
 APP_VERSION="2024-08-18"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
-# Which INDEX is in use? This is used to check apps and more.
+# Which INDEX is in use? This is used to check the status of apps and more.
 PORT_INDEX="${PORTS_DIR}/INDEX-"`freebsd-version | awk -F'.' '{print $1}'`
 # Where are the ports downloaded to?
 PORT_DISTFILES="${PORTS_DIR}/distfiles"
-# Used with each port that processed while it is being worked on.
+# Used with each port while it is being worked on.
 PORT_PATH=""
-# Used to keep track of the apps passed and skipped
+# Used to keep track of the requested ports and their status
 APP_LIST=""
 APP_SKIP=""
-# CMD is used with commands that require at least one app to be passed
+# CMD is used with commands that require at least one port to be passed
 CMD=""
 # Was there an issue that could wait?
 ISSUE=""
@@ -21,12 +22,9 @@ ISSUE_FOUND=0
 # We pass the out of date list around
 OUT_OF_DATE=""
 
-# We keep track of the time to check for any changes
-#TIME_START=`date +%y%m%d%H%M%S`
-
 usage () {
 	printf "\nHelper script for working with the local ports tree.\n"
-	printf "\n\t%s [ abandoned | appvers | auto | old | pull | setup ]\n" "${0##*/}" 
+	printf "\n\t%s [ abandoned | appvers | auto | distclean | old | pull | setup | work ]\n" "${0##*/}" 
 	printf "\t%s command port1 [ port2... ]\n" "${0##*/}" 
 	printf "\ncommand is required and must be one of the following:\n\n"
 	printf " A | abandoned : Use result with caution. Check for out of date ports that *may not* be in use.\n"
