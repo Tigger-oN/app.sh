@@ -2,11 +2,11 @@
 # Helper script for working with the local ports tree.
 # 
 # Version
-APP_VERSION="2024-08-18"
+APP_VERSION="2024-08-19"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
-PORT_INDEX="${PORTS_DIR}/INDEX-"`freebsd-version | awk -F'.' '{print $1}'`
+PORT_INDEX="${PORTS_DIR}/INDEX-"`freebsd-version -r | awk -F'.' '{print $1}'`
 # Where are the ports downloaded to?
 PORT_DISTFILES="${PORTS_DIR}/distfiles"
 # Used with each port while it is being worked on.
@@ -24,33 +24,44 @@ OUT_OF_DATE=""
 
 usage () {
 	printf "\nHelper script for working with the local ports tree.\n"
-	printf "\n\t%s [ abandoned | appvers | auto | distclean | old | pull | setup | work ]\n" "${0##*/}" 
-	printf "\t%s command port1 [ port2... ]\n" "${0##*/}" 
+	printf "\n    %s [abandoned | appvers | auto | distclean | old | pull | setup | work]\n" "${0##*/}" 
+	printf "    %s command port1 [port2...]\n" "${0##*/}" 
 	printf "\ncommand is required and must be one of the following:\n\n"
-	printf " A | abandoned : Use result with caution. Check for out of date ports that *may not* be in use.\n"
-	printf " a | auto      : Without confirmation, get the latest ports tree, then update any that are out of date.\n"
-	printf " C | distclean : Remove the ports/distfiles data for the passed port(s) or all ports if no part is passed.\n"
+	printf " A | abandoned : Use result with caution. Check for out of date ports that\n"
+    printf "                 *may not* be in use.\n"
+	printf " a | auto      : Without confirmation, get the latest ports tree, then\n"
+    printf "                 update any that are out of date.\n"
+	printf " C | distclean : Remove the ports/distfiles data for the passed port(s) or\n"
+    printf "                 all ports if no port is passed.\n"
 	printf " h | help      : Show this help and exit.\n"
 	printf " o | old       : List any out-of-date ports.\n"
-	printf " p | pull      : Get the most recent version of the ports, then show which can be updated.\n"
+	printf " p | pull      : Get the most recent version of the ports, then show which\n"
+    printf "                 can be updated.\n"
 	printf " S | setup     : Setup the local ports tree. Should only be needed once.\n"
 	printf " V | appvers   : Show the script version and some basic information.\n"
-	printf " W | work      : Look for any \"work\" subdirectories and clean them if found.\n"
+	printf " W | work      : Look for any \"work\" subdirectories and clean them if\n"
+    printf "                 found. This is a best guess process.\n"
 	printf "\nThe following commands require at least one port name to be passed.\n\n"
-	printf " b | build     : Configure (if needed) and build (but not install) the requested application(s).\n"
+	printf " b | build     : Configure (if needed) and build (but not install) the\n"
+    printf "                 requested application(s).\n"
 	printf " c | config    : Set configuration options for a port only.\n"
 	printf " d | rm | del | delete | remove :\n"
-	printf "                 (Recommended) Delete the requested port(s) using \"pkg delete <port>\". Will remove all related port(s). A confirmation is required.\n"
-	printf " D | deinstall : Use \"make deinstall\" in the port tree directory. Only the requested port will be removed.\n"
+	printf "                 (Recommended) Delete the requested port(s) using\n"
+    printf "                 \"pkg delete <port>\". Will remove all related port(s). A\n"
+    printf "                 confirmation is required.\n"
+	printf " D | deinstall : Use \"make deinstall\" in the port tree directory. Only the\n"
+    printf "                 requested port will be removed.\n"
 	printf " i | add | install :\n"
-	printf "                 For new installs only. Configure, build and install the requested port(s).\n"
+	printf "                 For new installs only. Configure, build and install the\n"
+    printf "                 requested port(s).\n"
 	printf " r | u | reinstall | update :\n"
-	printf "                 For ports already installed. Reinstall / update the requested port(s).\n"
+	printf "                 For ports already installed. Reinstall / update the\n"
+    printf "                 requested port(s).\n"
 	printf " s | showconf  : Show the configuration options for a port only.\n"
-	printf "\nPort name is the \"base name\" of the port. You do not need to included the current version or the new version numbers. For example, to update vim to the latest version (assuming already installed):\n"
-	printf "\t%s r vim\n" "${0##*/}"
-	printf "\nKnown issues:\n"
-	printf "\nIf a port is listed in more than one port category, the first port is used. If this is a problem, you will need to manually install / update the port you need.\n"
+	printf "\nPort name is the \"base name\" of the port. You do not need to included the\n"
+    printf "current version or the new version numbers. For example, to update vim to the\n"
+    printf "latest version (assuming already installed):\n"
+	printf "    %s r vim\n" "${0##*/}"
 	printf "\n"
 	exit
 }
@@ -59,7 +70,23 @@ error () {
 	printf "\nProblem:\n"
 	for x in "$@"
 	do
-		printf "%s\n\n" "${x}"
+		if [ ${#x} -gt 80 ]
+		then
+			lng=0
+			for w in $x
+			do
+				lng=$((1 + lng + ${#w}))
+				if [ ${lng} -gt 80 ]
+				then
+					printf "\n"
+					lng=0
+				fi
+				printf "%s " "${w}"
+			done
+			printf "\n\n"
+		else
+			printf "%s\n\n" "${x}"
+		fi
 	done
 	exit
 }
@@ -130,16 +157,15 @@ checkBeforeRun () {
 	then
 		usage
 	fi
-#	printf "\nChecking system and set-up...\n"
+	# Simple check
 	if [ ! -d "${PORTS_DIR}" ]
 	then
 		printf "\nUnable to locate the ports tree. Was checking here:\n"
 		printf " %s\n" "${PORTS_DIR}"
-		printf "\nIf you have installed the ports tree somewhere else, please edit \"PORTS_DIR\" in this script.\n"
-		printf "\nIf you do not have a ports tree yet, you will need to run the \"setup\" command first.\n\n"
+		printf "\nIf you have installed the ports tree somewhere else, please edit \"PORTS_DIR\"\nin this script.\n"
+		printf "\nIf you do not have a ports tree yet, please make the directory then run the\n\"setup\" command.\n\n"
 		exit
 	fi
-
 	# Check the request is valid
 	CMD=""
 	case ${1} in
@@ -244,7 +270,7 @@ cmdAbandonded () {
 	done
 	if [ -n "${abList}" ]
 	then
-		printf "\nThe following port(s) require an update but do not appear to be used or required by any other ports:\n%s\n\n" "$abList"
+		printf "\nThe following port(s) require an update but do not appear to be used or\nrequired by any other ports:\n%s\n\n" "$abList"
 	else
 		printf "\nAll out of date port(s) are required by at least one other installed port.\n\n"
 	fi
@@ -266,7 +292,7 @@ cmdAppVersion () {
 }
 
 cmdAuto () {
-	printf "\nWill get the latest ports tree, check for any out of date ports and update them if found.\n"
+	printf "\nWill get the latest ports tree, check for any out of date ports and update\nthem if found.\n"
 	checkRoot
 	checkGit
 	cmdPull
@@ -392,21 +418,21 @@ cmdDisplayOutOfDate () {
 	if [ -n "${OUT_OF_DATE}" ]
 	then
 		tmp=""
-        warn="
+		warn="
 ---------------------------
 IMPORTANT: Recompile first:"
-        tmpPkg=`printf "%s" "${OUT_OF_DATE}" | grep "^pkg-"`
-        tmpRst=`printf "%s" "${OUT_OF_DATE}" | grep "^rust-"`
-        if [ -n "$tmpPkg" -a -n "$tmpRst" ]
-        then
-                tmp="${warn} pkg, then rust"
-        elif [ -n "$tmpPkg" ]
-        then
-                tmp="${warn} pkg"
-        elif [ -n "$tmpRst" ]
-        then
-                tmp="${warn} rust"
-        fi
+		tmpPkg=`printf "%s" "${OUT_OF_DATE}" | grep "^pkg-"`
+		tmpRst=`printf "%s" "${OUT_OF_DATE}" | grep "^rust-"`
+		if [ -n "$tmpPkg" -a -n "$tmpRst" ]
+		then
+			tmp="${warn} pkg, then rust"
+		elif [ -n "$tmpPkg" ]
+		then
+			tmp="${warn} pkg"
+		elif [ -n "$tmpRst" ]
+		then
+			tmp="${warn} rust"
+		fi
 		printf "\nFound:\n%s\n\n" "${OUT_OF_DATE}${tmp}"
 	else
 		printf "\nAll ports are up to date.\n\n"
@@ -500,6 +526,7 @@ cmdSetup () {
 # Look for any work directories in a port, list, then clean them.
 # How does this happen? Build failures are my guess.
 cmdWorkClean () {
+	checkRoot
 	printf "\nLooking for stray \"work\" directories...\n"
 	WORK=`find ${PORTS_DIR} -type d -name "work*" -depth 3`
 	if [ -n "${WORK}" ]
@@ -516,7 +543,7 @@ cmdWorkClean () {
 		printf "\n"
 		checkAfterRun
 	else
-		printf "\nNo \"work\" directories found. This does not mean everything is clean, just a best guess.\n\n"
+		printf "\nNo \"work\" directories found. This does not mean everything is clean, just\na best guess.\n\n"
 	fi
 	exit
 }
