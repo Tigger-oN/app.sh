@@ -12,7 +12,7 @@ command is required and must be one of the following:
     a | auto      : Without confirmation, get the latest ports tree, then 
                     update any that are out of date.
     C | distclean : Remove the ports/distfiles data for the passed port(s) or 
-                    all ports if no part is passed.
+                    all ports if no port is passed.
     h | help      : Show this help and exit.
     o | old       : List any out-of-date ports.
     p | pull      : Get the most recent version of the ports, then show which 
