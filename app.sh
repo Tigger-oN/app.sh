@@ -2,7 +2,7 @@
 # Helper script for working with the local ports tree.
 # 
 # Version
-APP_VERSION="2024-08-26"
+APP_VERSION="2024-09-04"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
@@ -65,12 +65,13 @@ The following commands require at least one port name to be passed.
                  port(s).
  s | showconf  : Show the configuration options for a port only.
 
-Port name is the \"base name\" of the port. You do not need to included the
-current version or the new version numbers. For example, to update vim to the
-latest version (assuming already installed):
+Port name is the \"base name\" of the port. Do not included the current version
+or the new version numbers. For example, to update vim to the latest version 
+(assuming already installed):
+
     ${0##*/} r vim
 "
-	printf "%s" "${out}"
+	printf "%s\n" "${out}"
     exit
 }
 
@@ -212,7 +213,7 @@ checkBeforeRun () {
 checkINDEX () {
     if [ ! -f "${PORT_INDEX}" ]
     then
-        error "Unable to locate the port index." "The should have been downloaded after a \"pull\" request." "Was looking for: ${PORT_INDEX}" "You may need to run \"cd ${PORTS_DIR} ; make fetchindex\" first."
+        error "Unable to locate the port index." "This should have been downloaded after a \"pull\" request." "Was looking for: ${PORT_INDEX}" "You may need to run \"cd ${PORTS_DIR} ; make fetchindex\" first."
     fi
 }
 
@@ -226,7 +227,7 @@ checkGit () {
 checkRoot () {
     if [ `whoami` != "root" ]
     then
-        error "This request must be performed from the root user login."
+        error "This request must be performed as the root user."
     fi
 }
 
@@ -325,13 +326,13 @@ cmdAuto () {
     do
         APP_LIST=${APP_LIST}${a}" "
     done
-    # Check for possible config changes
-    cmdConfig
+    # Run a conditional config check
+    subMakeConfigForBuild
     # Start the update for each app
     cmdReinstall
     # Because cmdAuto runs a little different
     checkAfterRun
-    exit        
+    exit
 }
 
 cmdBuild () {
@@ -344,6 +345,8 @@ cmdBuild () {
     subMakeBuild
 }
 # Set the config options for all the passed ports.
+# NOTE: This is different from the subConfigConditional call as a config
+# request is always performed. This request can be called directly.
 cmdConfig () {
     printf "\nConfig started\n"
     for p in ${APP_LIST}
@@ -495,6 +498,9 @@ cmdReinstall () {
     local issue=0
     # Clean all the ports first.
     subMakeClean
+	# Conditional config check
+	subMakeConfigForBuild
+	# Start the real update
     for p in ${APP_LIST}
     do
         issue="0"
@@ -580,17 +586,6 @@ subMakeClean () {
         cd "${PORT_PATH}"
         make clean
         issueChk "$?" "${p} - make clean"
-    done
-}
-# Only used with the "config" command. Set config for the port only.
-subMakeConfig () {
-    for p in ${APP_LIST}
-    do
-        workMsg "${p}"
-        getPortPath "${p}"
-        cd "${PORT_PATH}"
-        make config
-        issueChk "$?" "${p} - make config"
     done
 }
 # Used with "build" commands. Will try to set all config options up front
