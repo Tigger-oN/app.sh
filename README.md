@@ -2,7 +2,8 @@
 
 A helper script for working with the FreeBSD ports tree on the local machine.
 
-	app.sh [abandoned | appvers | auto | distclean | old | pull | setup | work]
+	app.sh [abandoned | appvers | auto | distclean | fetchindex | old | pull 
+           | setup | work]
 	app.sh command port1 [ port2... ]
 
 command is required and must be one of the following:
@@ -13,6 +14,7 @@ command is required and must be one of the following:
                     update any that are out of date.
     C | distclean : Remove the ports/distfiles data for the passed port(s) or 
                     all ports if no port is passed.
+    F | fetchindex: Download the latest ports index.
     h | help      : Show this help and exit.
     o | old       : List any out-of-date ports.
     p | pull      : Get the most recent version of the ports, then show which 
