@@ -1,8 +1,8 @@
 #!/bin/sh
 # Helper script for working with the local ports tree.
 # 
-# Version
-APP_VERSION="2024-09-04"
+# Version - yyyymmdd format of the last change
+APP_VERSION="20240908"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
@@ -23,10 +23,11 @@ ISSUE_FOUND=0
 OUT_OF_DATE=""
 
 usage () {
-	out="
+    out="
 Helper script for working with the local ports tree.
  
-    ${0##*/} [abandoned | appvers | auto | distclean | old | pull | setup | work]
+    ${0##*/} [abandoned | appvers | auto | distclean | fetchindex | old | pull 
+           | setup | work]
     ${0##*/} command port1 [port2...]
  
 command is required and must be one of the following:
@@ -37,6 +38,7 @@ command is required and must be one of the following:
                  any that are out of date.
  C | distclean : Remove the ports/distfiles data for the passed port(s) or all
                  ports if no port is passed.
+ F | fetchindex: Download the latest ports index.
  h | help      : Show this help and exit.
  o | old       : List any out-of-date ports.
  p | pull      : Get the most recent version of the ports, then show which can 
@@ -71,7 +73,7 @@ or the new version numbers. For example, to update vim to the latest version
 
     ${0##*/} r vim
 "
-	printf "%s\n" "${out}"
+    printf "%s\n" "${out}"
     exit
 }
 
@@ -97,7 +99,7 @@ error () {
             printf "%s\n\n" "${x}"
         fi
     done
-    exit
+    exit 1
 }
 
 workMsg () {
@@ -173,7 +175,7 @@ checkBeforeRun () {
         printf " %s\n" "${PORTS_DIR}"
         printf "\nIf you have installed the ports tree somewhere else, please edit \"PORTS_DIR\"\nin this script.\n"
         printf "\nIf you do not have a ports tree yet, please make the directory then run the\n\"setup\" command.\n\n"
-        exit
+        exit 1
     fi
     # Check the request is valid
     CMD=""
@@ -185,6 +187,7 @@ checkBeforeRun () {
         c|config) CMD="cmdConfig";;
         D|deinstall) CMD="cmdDeinstall";;
         d|rm|del|delete|remove) CMD="cmdDelete";;
+        F|fetchindex) cmdFetchIndex; return;;
         i|add|install) CMD="cmdInstall";;
         o|old) cmdOutOfDate; cmdDisplayOutOfDate; return;;
         p|pull) cmdPull; cmdDisplayOutOfDate; return;;
@@ -336,7 +339,7 @@ cmdAuto () {
 }
 
 cmdBuild () {
-	checkRoot
+    checkRoot
     printf "\nBuild started.\n"
     subMakeClean
     printf "\nConfig option check.\n"
@@ -450,6 +453,25 @@ IMPORTANT: Recompile first:"
         printf "\nAll ports are up to date.\n\n"
     fi
 }
+# Grab the latest ports index without a pull request.
+cmdFetchIndex () {
+    warn="
+Grab the latest ports index without a \"pull\" request. This could lead to the
+ports tree being out of sync with the ports index.
+
+Only perform this request if there was an error previously.
+
+Understand the risk and continue? (Y/n) : "
+    printf "%s" "${warn}"
+    read ans
+    if [ "${ans}" = "y" -o "${ans}" = "Y" -o "${ans}" = "" ]
+    then
+        subMakeFetchIndex
+    else
+        printf "\nCancelling \"fetchindex\" request.\n\n"
+        exit
+    fi
+}
 # Configure, build and install a port
 cmdInstall () {
     printf "\nInstall started, cleaning first.\n"
@@ -470,24 +492,38 @@ cmdPull () {
     printf "\nChecking a few things first...\n"
     checkPull
 
-    printf "\nRunning fetch and checking if an update is required...\n"
+    printf "\nRunning fetch and checking if an update is required...\n\n"
     git -C "${PORTS_DIR}" fetch
+    if [ $? -gt 0 ]
+    then
+        printf "\nUnable to perform a \"git fetch\" request. This is a major issue.\n"
+        printf "\nPlease check network connection and harddrive space then try again.\n\n"
+        exit 1
+    fi
     CHK=`git -C "${PORTS_DIR}" rev-list HEAD...origin/main --count`
-
     # Is a pull request needed?
     if [ ${CHK} -eq 0 ]
     then
-        printf "\nPorts tree is up to date.\n"
+        printf "Ports tree is up to date.\n"
         if [ ! -f "${PORT_INDEX}" ]
         then
             subMakeFetchIndex
         fi
     else 
-        printf "\nStarting the pull request...\n"
+        printf "\nStarting the pull request...\n\n"
         git -C "${PORTS_DIR}" pull
-        printf "\nPorts have been updated.\n"
+        if [ $? -eq 0 ]
+        then 
+            printf "\nPorts tree has been updated.\n"
+        else
+            issueChk "$?" "\"git pull\" failed in some way. Guessing network connection or harddrive space."
+        fi
         subMakeFetchIndex
-        printf "\nPorts tree should be up to date.\n"
+        if [ $? -gt 0 ]
+        then
+            printf "\nThere was an issue getting the ports index.\n" 
+            printf "\nRun \"%s fetchindex\" to resolve the issue.\n\n" "${0##*/}"
+        fi
     fi
     # Check if anything out of date
     cmdOutOfDate
@@ -498,9 +534,9 @@ cmdReinstall () {
     local issue=0
     # Clean all the ports first.
     subMakeClean
-	# Conditional config check
-	subMakeConfigForBuild
-	# Start the real update
+    # Conditional config check
+    subMakeConfigForBuild
+    # Start the real update
     for p in ${APP_LIST}
     do
         issue="0"
@@ -527,13 +563,19 @@ cmdReinstall () {
         make clean
     done
 }
-
 # Use git to pull down the ports
 cmdSetup () {
     printf "\nChecking a few things first...\n"
     checkSetup
-    printf "\nReady to clone. This will take some time...\n"
+    printf "\nReady to clone. This will take some time...\n\n"
     git clone --depth 1 https://git.FreeBSD.org/ports.git "${PORTS_DIR}"
+    if [ $? -gt 0 ]
+    then
+        printf "\nUnable to perform \"git clone\". This is a major issue.\n"
+        printf "\nTry running setup again. You may need to delete the contents of:\n"
+        printf " %s\n\n" "${PORTS_DIR}"
+        exit 1
+    fi
     subMakeFetchIndex
     printf "\nThe ports tree has been setup. Use \"pull\" to keep the ports tree in sync.\n\n"
     exit
@@ -602,30 +644,34 @@ subMakeConfigForBuild () {
 }
 
 subMakeFetchIndex () {
-    printf "\nGetting the latest port INDEX file...\n"
+    printf "\nGetting the latest ports index file...\n\n"
     cd "${PORTS_DIR}"
     make fetchindex
+    if [ $? -gt 0 ]
+    then
+        issueChk "1" "\"make fetchindex\" failed. Possible network issue."
+        return 1
+    else
+        printf "\nPorts index file has been updated.\n"
+        return 0
+    fi
 }
 
 subMakeInstall () {
     # Note: Assumes subMakeClean has been run.
-    local issue=0
     for p in ${APP_LIST}
     do
-        issue="0"
         workMsg "${p}"
         getPortPath "${p}"
         cd "${PORT_PATH}"
         make
-        issue="$?"
-        if [ ${issue} != "0" ]
+        if [ $? -ne 0 ]
         then
             issueChk "1" "${p} - make"
             continue
         fi
         make install
-        issue="$?"
-        if [ ${issue} != "0" ]
+        if [ $? -ne 0 ]
         then
             issueChk "1" "${p} - make install"
             continue
