@@ -2,7 +2,7 @@
 # Helper script for working with the local ports tree.
 # 
 # Version - yyyymmdd format of the last change
-APP_VERSION="20240908"
+APP_VERSION="20240915"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
@@ -272,11 +272,10 @@ cmdAbandonded () {
     tmp=""
     for p in ${OUT_OF_DATE}
     do
-        #printf " %s\n" "${p}"
         tmp=`pkg delete -n -R "${p}" | grep "Number of packages to be removed" | awk '{print $NF}'`
         if [ "${tmp}" = "1" ]
         then
-            abList="
+            abList="${abList}
  ${p}"
         fi
     done
