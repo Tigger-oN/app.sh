@@ -2,7 +2,7 @@
 # Helper script for working with the local ports tree.
 # 
 # Version - yyyymmdd format of the last change
-APP_VERSION="20240915"
+APP_VERSION="20240916"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
@@ -103,7 +103,7 @@ error () {
 }
 
 workMsg () {
-    printf "\nWorking on %s...\n" "${1}"
+    printf "\n[%s] Working on %s...\n" "${1}" "${2}"
 }
 
 # Used to keep track of problems, but save the report until the end.
@@ -171,10 +171,12 @@ checkBeforeRun () {
     # Simple check
     if [ ! -d "${PORTS_DIR}" ]
     then
-        printf "\nUnable to locate the ports tree. Was checking here:\n"
-        printf " %s\n" "${PORTS_DIR}"
-        printf "\nIf you have installed the ports tree somewhere else, please edit \"PORTS_DIR\"\nin this script.\n"
-        printf "\nIf you do not have a ports tree yet, please make the directory then run the\n\"setup\" command.\n\n"
+        printf "\nUnable to locate the ports tree. Was checking here:\n\n\
+ %s\n\n\
+If you have installed the ports tree somewhere else, please edit \"PORTS_DIR\"\n\
+in this script.\n\n\
+If you do not have a ports tree yet, please make the directory then run the\n\
+\"setup\" command.\n\n" "${PORTS_DIR}"
         exit 1
     fi
     # Check the request is valid
@@ -295,28 +297,26 @@ cmdAppVersion () {
     else
         tmp="No pull requests made."
     fi
-    printf "\nApp version      %s\n" "${APP_VERSION}"
-    printf "Ports directory  %s\n" "${PORTS_DIR}"
-    printf "Ports INDEX      %s\n" "${PORT_INDEX##*/}"
-    printf "Last pull        %s\n\n" "${tmp}"
+    printf "\n\
+App version      %s\n\
+Ports directory  %s\n\
+Ports INDEX      %s\n\
+Last pull        %s\n\
+\n" "${APP_VERSION}" "${PORTS_DIR}" "${PORT_INDEX##*/}" "${tmp}"
     exit
 }
 
 cmdAuto () {
-    printf "\nWill get the latest ports tree, check for any out of date ports and update\nthem if found.\n"
     checkRoot
+    printf "\nWill get the latest ports tree, check for any out of date ports and update\nthem if found.\n"
     checkGit
     cmdPull
 
     if [ -n "${OUT_OF_DATE}" ]
     then
-        printf "\nThe following ports are out of date and will be updated.\n%s\n" "${OUT_OF_DATE}"
-        printf "\nCTRL+c to cancel, otherwise starting in: 3..."
-        sleep 1
-        printf "2..."
-        sleep 1
-        printf "1..."
-        sleep 1
+        printf "\nFound an update for following port(s):\n\n%s\n" "${OUT_OF_DATE}"
+        printf "\nCTRL+c to cancel, otherwise updating port(s) in: "
+        subCountDown 3
         printf "\n"
     else
         printf "\nAll ports are up to date.\n\n"
@@ -353,7 +353,7 @@ cmdConfig () {
     printf "\nConfig started\n"
     for p in ${APP_LIST}
     do
-        workMsg "${p}"
+        workMsg "Config" "${p}"
         getPortPath "${p}"
         cd "${PORT_PATH}"
         make config
@@ -365,7 +365,7 @@ cmdConfigShow () {
     printf "\nShow configuration started\n"
     for p in ${APP_LIST}
     do
-        workMsg "${p}"
+        workMsg "Config show" "${p}"
         getPortPath "${p}"
         cd "${PORT_PATH}"
         make showconfig
@@ -413,6 +413,15 @@ cmdDistClean () {
             make distclean
         done
     else
+        # Are there any files to remove?
+        local c=`ls -Aq "${PORT_DISTFILES}" | wc -l`
+        if [ $c -eq 0 ]
+        then
+            printf "\nThe ports/distfiles are clean already. Nothing to do here.\n\n"
+            exit
+        fi
+        # Still here? We have files then.
+        printf "\nCurrent disk usage:\n\n%s\n" "`du -hc "${PORT_DISTFILES}"`"
         printf "\nConfirmation required.\n\nDo you really want to remove all ports/distfiles? [Y/n] "
         read ans
         if [ "${ans}" = "n" -o "${ans}" = "N" ]
@@ -447,7 +456,7 @@ IMPORTANT: Recompile first:"
         then
             tmp="${warn} rust"
         fi
-        printf "\nFound:\n%s\n\n" "${OUT_OF_DATE}${tmp}"
+        printf "\nFound an update for the following port(s):\n\n%s\n\n" "${OUT_OF_DATE}${tmp}"
     else
         printf "\nAll ports are up to date.\n\n"
     fi
@@ -495,8 +504,8 @@ cmdPull () {
     git -C "${PORTS_DIR}" fetch
     if [ $? -gt 0 ]
     then
-        printf "\nUnable to perform a \"git fetch\" request. This is a major issue.\n"
-        printf "\nPlease check network connection and harddrive space then try again.\n\n"
+        printf "\nUnable to perform a \"git fetch\" request. This is a major issue.\n\
+\nPlease check network connection and harddrive space then try again.\n\n"
         exit 1
     fi
     CHK=`git -C "${PORTS_DIR}" rev-list HEAD...origin/main --count`
@@ -520,8 +529,8 @@ cmdPull () {
         subMakeFetchIndex
         if [ $? -gt 0 ]
         then
-            printf "\nThere was an issue getting the ports index.\n" 
-            printf "\nRun \"%s fetchindex\" to resolve the issue.\n\n" "${0##*/}"
+            printf "\nThere was an issue getting the ports index.\n\
+\nRun \"%s fetchindex\" to resolve the issue.\n\n" "${0##*/}"
         fi
     fi
     # Check if anything out of date
@@ -539,7 +548,7 @@ cmdReinstall () {
     for p in ${APP_LIST}
     do
         issue="0"
-        workMsg "${p}"
+        workMsg "Build" "${p}"
         getPortPath "${p}"
         cd "${PORT_PATH}"
         make
@@ -570,9 +579,9 @@ cmdSetup () {
     git clone --depth 1 https://git.FreeBSD.org/ports.git "${PORTS_DIR}"
     if [ $? -gt 0 ]
     then
-        printf "\nUnable to perform \"git clone\". This is a major issue.\n"
-        printf "\nTry running setup again. You may need to delete the contents of:\n"
-        printf " %s\n\n" "${PORTS_DIR}"
+        printf "\nUnable to perform \"git clone\". This is a major issue.\n\
+\nTry running setup again. You may need to delete the contents of:\n\
+ %s\n\n" "${PORTS_DIR}"
         exit 1
     fi
     subMakeFetchIndex
@@ -603,6 +612,28 @@ cmdWorkClean () {
     fi
     exit
 }
+# Visual pause
+subCountDown () {
+    local c=3
+    local t=0
+    if [ -n "${1}" -a ${1} -gt 0 ]
+    then
+        c=${1}
+    fi
+    while [ $c -gt 0 ]
+    do
+        printf "%s" "${c}"
+        c=$((c - 1))
+        t=0
+        sleep 0.25
+        while [ $t -lt 3 ]
+        do
+            printf "."
+            t=$((t + 1))
+            sleep 0.25
+        done
+    done
+}
 
 subMakeBuild () {
     # Note: Assumes subMakeClean has been run.
@@ -622,7 +653,7 @@ subMakeBuild () {
 subMakeClean () {
     for p in ${APP_LIST}
     do
-        workMsg "${p}"
+        workMsg "Clean" "${p}"
         getPortPath "${p}"
         cd "${PORT_PATH}"
         make clean
@@ -634,7 +665,7 @@ subMakeClean () {
 subMakeConfigForBuild () {
     for p in ${APP_LIST}
     do
-        workMsg "${p}"
+        workMsg "Config check" "${p}"
         getPortPath "${p}"
         cd "${PORT_PATH}"
         #make config-recursive
@@ -660,7 +691,7 @@ subMakeInstall () {
     # Note: Assumes subMakeClean has been run.
     for p in ${APP_LIST}
     do
-        workMsg "${p}"
+        workMsg "Build" "${p}"
         getPortPath "${p}"
         cd "${PORT_PATH}"
         make
