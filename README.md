@@ -8,9 +8,9 @@ A helper script for working with the FreeBSD ports tree on the local machine.
 
 command is required and must be one of the following:
 
-    A | abandoned : Use result with caution. Check for out of date ports that 
+    a | abandoned : Use result with caution. Check for out of date ports that 
                     *may not* be in use.
-    a | auto      : Without confirmation, get the latest ports tree, then 
+    A | auto      : Without confirmation, get the latest ports tree, then 
                     update any that are out of date.
     C | distclean : Remove the ports/distfiles data for the passed port(s) or 
                     all ports if no port is passed.

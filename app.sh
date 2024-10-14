@@ -2,7 +2,7 @@
 # Helper script for working with the local ports tree.
 # 
 # Version - yyyymmdd format of the last change
-APP_VERSION="20240916"
+APP_VERSION="20241014"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
@@ -32,9 +32,9 @@ Helper script for working with the local ports tree.
  
 command is required and must be one of the following:
  
- A | abandoned : Use result with caution. Check for out of date ports that *may
+ a | abandoned : Use result with caution. Check for out of date ports that *may
                  not* be in use.
- a | auto      : Without confirmation, get the latest ports tree, then update
+ A | auto      : Without confirmation, get the latest ports tree, then update
                  any that are out of date.
  C | distclean : Remove the ports/distfiles data for the passed port(s) or all
                  ports if no port is passed.
@@ -182,8 +182,8 @@ If you do not have a ports tree yet, please make the directory then run the\n\
     # Check the request is valid
     CMD=""
     case ${1} in
-        A|abandoned) cmdAbandonded; return;;
-        a|auto) cmdAuto; return;;
+        a|abandoned) cmdAbandonded; return;;
+        A|auto) cmdAuto; return;;
         b|build) CMD="cmdBuild";;
         C|distclean) cmdDistClean $@; return;;
         c|config) CMD="cmdConfig";;
