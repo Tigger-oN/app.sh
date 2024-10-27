@@ -1,8 +1,10 @@
 #!/bin/sh
 # Helper script for working with the local ports tree.
+#
+# TODO: Need to clean up the options. Some processes are being run twice.
 # 
 # Version - yyyymmdd format of the last change
-APP_VERSION="20241014"
+APP_VERSION="20241027"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
@@ -23,24 +25,25 @@ ISSUE_FOUND=0
 OUT_OF_DATE=""
 
 usage () {
+    app=${0##*/}
     out="
 Helper script for working with the local ports tree.
  
-    ${0##*/} [abandoned | appvers | auto | distclean | fetchindex | old | pull 
+    ${app} [abandoned | appvers | auto | distclean | fetchindex | old | pull 
            | setup | work]
-    ${0##*/} command port1 [port2...]
+    ${app} command port1 [port2...]
  
 command is required and must be one of the following:
  
- a | abandoned : Use result with caution. Check for out of date ports that *may
-                 not* be in use.
- A | auto      : Without confirmation, get the latest ports tree, then update
-                 any that are out of date.
+ a | abandoned : Use result with caution. Check for any superseded ports that 
+                 *may not* be in use.
+ A | auto      : Without confirmation, get the latest ports tree then update any
+                 that have been superseded.
  C | distclean : Remove the ports/distfiles data for the passed port(s) or all
                  ports if no port is passed.
  F | fetchindex: Download the latest ports index.
  h | help      : Show this help and exit.
- o | old       : List any out-of-date ports.
+ o | old       : List any superseded ports.
  p | pull      : Get the most recent version of the ports, then show which can 
                  be updated.
  S | setup     : Setup the local ports tree. Should only be needed once.
@@ -50,7 +53,7 @@ command is required and must be one of the following:
 
 The following commands require at least one port name to be passed.
 
- b | build     : Configure (if needed) and build (but not install) the requested
+ b | build     : Configure (if needed) and build but not install the requested
                  application(s).
  c | config    : Set configuration options for a port only.
  d | rm | del | delete | remove :
@@ -71,7 +74,7 @@ Port name is the \"base name\" of the port. Do not included the current version
 or the new version numbers. For example, to update vim to the latest version 
 (assuming already installed):
 
-    ${0##*/} r vim
+    ${app} r vim
 "
     printf "%s\n" "${out}"
     exit
@@ -103,7 +106,7 @@ error () {
 }
 
 workMsg () {
-    printf "\n[%s] Working on %s...\n" "${1}" "${2}"
+    printf "\n[%s] %s...\n" "${1}" "${2}"
 }
 
 # Used to keep track of problems, but save the report until the end.
@@ -157,9 +160,9 @@ getAppList () {
 checkAfterRun () {
     if [ -n "${ISSUE}" ]
     then
-        printf "All done but had the following issue(s):\n%s\n\n" "${ISSUE}"
+        printf "\nAll done but had the following issue(s):\n%s\n\n" "${ISSUE}"
     else
-        printf "All done.\n\n"
+        printf "\nAll done.\n\n"
     fi
 }
 
@@ -266,7 +269,7 @@ cmdAbandonded () {
     cmdOutOfDate
     if [ -z "${OUT_OF_DATE}" ]
     then
-        printf "\nNo out of date ports. This feature requires at least one out of date port.\n\n"
+        printf "\nNo superseded ports. This feature requires at least one out of date port.\n\n"
         exit
     fi
     printf "\nChecking for standalone and out of date ports...\n"
@@ -283,9 +286,9 @@ cmdAbandonded () {
     done
     if [ -n "${abList}" ]
     then
-        printf "\nThe following port(s) require an update but do not appear to be used or\nrequired by any other ports:\n%s\n\n" "$abList"
+        printf "\nUpdate available for the following standalone port(s):\n%s\n\n" "$abList"
     else
-        printf "\nAll out of date port(s) are required by at least one other installed port.\n\n"
+        printf "\nAny out of date port is required by at least one other installed port.\n\n"
     fi
     exit
 }
@@ -328,49 +331,39 @@ cmdAuto () {
     do
         APP_LIST=${APP_LIST}${a}" "
     done
+    # Make sure everything is clean
+    subCmd "clean"
     # Run a conditional config check
-    subMakeConfigForBuild
+    subCmd "config-conditional"
     # Start the update for each app
-    cmdReinstall
+    subCmd "reinstall"
+    # Clean up
+    subCmd "clean"
     # Because cmdAuto runs a little different
     checkAfterRun
     exit
 }
-
+# NOTE: No clean is performed after the build.
 cmdBuild () {
     checkRoot
     printf "\nBuild started.\n"
-    subMakeClean
+    subCmd "clean"
     printf "\nConfig option check.\n"
-    subMakeConfigForBuild
+    subCmd "config-conditional"
     printf "\nBuilding port.\n"
-    subMakeBuild
+    subCmd "build"
 }
 # Set the config options for all the passed ports.
 # NOTE: This is different from the subConfigConditional call as a config
 # request is always performed. This request can be called directly.
 cmdConfig () {
     printf "\nConfig started\n"
-    for p in ${APP_LIST}
-    do
-        workMsg "Config" "${p}"
-        getPortPath "${p}"
-        cd "${PORT_PATH}"
-        make config
-        issueChk "$?" "${p} - make config"
-    done
+    subCmd "config"
 }
 # Show the config options for all the passed ports.
 cmdConfigShow () {
     printf "\nShow configuration started\n"
-    for p in ${APP_LIST}
-    do
-        workMsg "Config show" "${p}"
-        getPortPath "${p}"
-        cd "${PORT_PATH}"
-        make showconfig
-        issueChk "$?" "${p} - make showconfig"
-    done
+    subCmd "showconfig"
 }
 # Delete the requested port(s) using pkg delete <port(s)>
 cmdDelete () {
@@ -379,16 +372,10 @@ cmdDelete () {
 # Deinstall the port(s) using make deinstall
 cmdDeinstall () {
     printf "\nDeinstalling the requested port(s).\n"
-    for p in ${APP_LIST}
-    do
-        printf "\nWorking on %s...\n" "${p}"
-        getPortPath "${p}"
-        cd "${PORT_PATH}"
-        make clean ; make deinstall
-        issueChk "$?" "${p} - make deinstall"
-    done
+    subCmd "deinstall"
 }
 # Removes the ports/dist files for the passed ports or all ports.
+# Note: distclean also cleans the port dir
 cmdDistClean () {
     checkRoot
     # simple check
@@ -405,13 +392,7 @@ cmdDistClean () {
             printf "\nNo matching port(s) to clean for. Guess we are done for now.\n\n"
             exit
         fi
-        for p in ${APP_LIST}
-        do
-            getPortPath "${p}"
-            printf "\nCleaning ports/distfiles for %s...\n" "${p}"
-            cd "${PORT_PATH}"
-            make distclean
-        done
+        subCmd "distclean"
     else
         # Are there any files to remove?
         local c=`ls -Aq "${PORT_DISTFILES}" | wc -l`
@@ -458,7 +439,7 @@ IMPORTANT: Recompile first:"
         fi
         printf "\nFound an update for the following port(s):\n\n%s\n\n" "${OUT_OF_DATE}${tmp}"
     else
-        printf "\nAll ports are up to date.\n\n"
+        printf "\nAll ports are up to date.\n"
     fi
 }
 # Grab the latest ports index without a pull request.
@@ -483,11 +464,12 @@ Understand the risk and continue? (Y/n) : "
 # Configure, build and install a port
 cmdInstall () {
     printf "\nInstall started, cleaning first.\n"
-    subMakeClean
+    subCmd "clean"
     printf "\nConfig option check.\n"
-    subMakeConfigForBuild
+    subCmd "config-conditional"
     printf "\nBuild and install started\n"
-    subMakeInstall
+    subCmd "install"
+    subCmd "clean"
 }
 # Check for any out of date ports. OUT_OF_DATE will hold the output.
 cmdOutOfDate () {
@@ -541,35 +523,13 @@ cmdReinstall () {
     printf "\nReinstall started\n"
     local issue=0
     # Clean all the ports first.
-    subMakeClean
+    subCmd "clean"
     # Conditional config check
-    subMakeConfigForBuild
+    subCmd "config-conditional"
     # Start the real update
-    for p in ${APP_LIST}
-    do
-        issue="0"
-        workMsg "Build" "${p}"
-        getPortPath "${p}"
-        cd "${PORT_PATH}"
-        make
-        issue="$?"
-        if [ ${issue} != "0" ]
-        then
-            issueChk "1" "${p} - make"
-            continue
-        fi
-        make reinstall
-        issue="$?"
-        if [ ${issue} != "0" ]
-        then
-            issueChk "1" "${p} - make reinstall"
-            continue
-        else
-            INSTALLED="${INSTALLED}
- ${p}"
-        fi
-        make clean
-    done
+    subCmd "reinstall"
+    # And clean up
+    subCmd "clean"
 }
 # Use git to pull down the ports
 cmdSetup () {
@@ -604,13 +564,57 @@ cmdWorkClean () {
         done
         printf "\nFound \"work\" directories for the following:\n"
         printf " %s\n" ${APP_LIST}
-        subMakeClean
+        subCmd "clean"
         printf "\n"
         checkAfterRun
     else
         printf "\nNo \"work\" directories found. This does not mean everything is clean, just\na best guess.\n\n"
     fi
     exit
+}
+
+# Will loop over APP_LIST and perform an action
+subCmd () {
+    if [ -z "${1}" ]
+    then
+        error "Script error. subCmd called without an action definded."
+    fi
+    local action=""
+    local action2=""
+    local issue=0
+    local subAction="${1}"
+    case "${1}" in
+        build) break;;
+        clean) action="clean"; break;;
+        config) action="config"; break;;
+        config-conditional) action="config-conditional"; break;;
+        distclean) action="distclean"; break;;
+        deinstall) action="clean"; action2="deinstall"; break;;
+        install) action2="install"; break;;
+        reinstall) action2="reinstall"; break;;
+        showconfig) action="showconfig"; break;;
+        *) error "Script error. SUB_ACTION is invalid.";;
+    esac
+
+    for p in ${APP_LIST}
+    do
+        issue=0
+        workMsg "${subAction}" "${p}"
+        getPortPath "${p}"
+        cd "${PORT_PATH}"
+        make ${action}
+        issue="$?"
+        if [ ${issue} != "0" ]
+        then
+            issueChk "${issue}" "${p} - make ${action}"
+            continue
+        fi
+        if [ -n "${action2}" ]
+        then
+            make ${action2}
+            issueChk "$?" "${p} - make ${action2}"
+        fi
+    done
 }
 # Visual pause
 subCountDown () {
@@ -635,44 +639,6 @@ subCountDown () {
     done
 }
 
-subMakeBuild () {
-    # Note: Assumes subMakeClean has been run.
-    for p in ${APP_LIST}
-    do
-        printf "\nWorking on %s...\n" "${p}"
-        getPortPath "${p}"
-        cd "${PORT_PATH}"
-        make
-        issueChk "$?" "${p} - make"
-    done
-}
-# Clean the build working directory. While it may not always be needed, it is
-# safer to do this every time.
-# TODO: Make this optional? For example: if a build has failed, this will
-# require the build to start from scratch when it may not be needed.
-subMakeClean () {
-    for p in ${APP_LIST}
-    do
-        workMsg "Clean" "${p}"
-        getPortPath "${p}"
-        cd "${PORT_PATH}"
-        make clean
-        issueChk "$?" "${p} - make clean"
-    done
-}
-# Used with "build" commands. Will try to set all config options up front
-# before starting to build the port(s).
-subMakeConfigForBuild () {
-    for p in ${APP_LIST}
-    do
-        workMsg "Config check" "${p}"
-        getPortPath "${p}"
-        cd "${PORT_PATH}"
-        #make config-recursive
-        make config-conditional
-    done
-}
-
 subMakeFetchIndex () {
     printf "\nGetting the latest ports index file...\n\n"
     cd "${PORTS_DIR}"
@@ -685,32 +651,6 @@ subMakeFetchIndex () {
         printf "\nPorts index file has been updated.\n"
         return 0
     fi
-}
-
-subMakeInstall () {
-    # Note: Assumes subMakeClean has been run.
-    for p in ${APP_LIST}
-    do
-        workMsg "Build" "${p}"
-        getPortPath "${p}"
-        cd "${PORT_PATH}"
-        make
-        if [ $? -ne 0 ]
-        then
-            issueChk "1" "${p} - make"
-            continue
-        fi
-        make install
-        if [ $? -ne 0 ]
-        then
-            issueChk "1" "${p} - make install"
-            continue
-        else
-            INSTALLED="${INSTALLED}
- ${p}"
-        fi
-        make clean
-    done
 }
 
 # A few checks before going further
