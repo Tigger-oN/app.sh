@@ -1,10 +1,10 @@
 #!/bin/sh
 # Helper script for working with the local ports tree.
 #
-# TODO: Need to clean up the options. Some processes are being run twice.
+# TODO: Nothing atm.
 # 
 # Version - yyyymmdd format of the last change
-APP_VERSION="20241027"
+APP_VERSION="20241103"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
@@ -134,8 +134,8 @@ getAppList () {
     printf "\nChecking for requested port(s)...\n"
     for a in $@
     do
-        result=`awk -F'|' '$1 ~ /^'${a}'-([0-9._])+/ && !/^'${a}'-([0-9._])+([\-])+/ {print $2}' "${PORT_INDEX}" | uniq | wc -l`
-        if [ $result -eq 1 ]
+        getPortPath "${a}"
+        if [ -n "${PORT_PATH}" ]
         then
             APP_LIST=${APP_LIST}${a}" "
         else
@@ -288,7 +288,7 @@ cmdAbandonded () {
     then
         printf "\nUpdate available for the following standalone port(s):\n%s\n\n" "$abList"
     else
-        printf "\nAny out of date port is required by at least one other installed port.\n\n"
+        printf "\nSuperseded ports are required by at least one other installed port.\n\n"
     fi
     exit
 }
@@ -357,6 +357,7 @@ cmdBuild () {
 # NOTE: This is different from the subConfigConditional call as a config
 # request is always performed. This request can be called directly.
 cmdConfig () {
+    checkRoot
     printf "\nConfig started\n"
     subCmd "config"
 }
@@ -371,6 +372,7 @@ cmdDelete () {
 }
 # Deinstall the port(s) using make deinstall
 cmdDeinstall () {
+    checkRoot
     printf "\nDeinstalling the requested port(s).\n"
     subCmd "deinstall"
 }
@@ -437,7 +439,7 @@ IMPORTANT: Recompile first:"
         then
             tmp="${warn} rust"
         fi
-        printf "\nFound an update for the following port(s):\n\n%s\n\n" "${OUT_OF_DATE}${tmp}"
+        printf "\nFound an update for the following port(s):\n\n%s\n" "${OUT_OF_DATE}${tmp}"
     else
         printf "\nAll ports are up to date.\n"
     fi
@@ -463,6 +465,7 @@ Understand the risk and continue? (Y/n) : "
 }
 # Configure, build and install a port
 cmdInstall () {
+    checkRoot
     printf "\nInstall started, cleaning first.\n"
     subCmd "clean"
     printf "\nConfig option check.\n"
@@ -520,6 +523,7 @@ cmdPull () {
 }
 # Reinstall / update requested port(s)
 cmdReinstall () {
+    checkRoot
     printf "\nReinstall started\n"
     local issue=0
     # Clean all the ports first.
