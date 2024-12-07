@@ -1,10 +1,10 @@
 #!/bin/sh
 # Helper script for working with the local ports tree.
 #
-# TODO: Nothing atm.
+# TODO: 
 # 
 # Version - yyyymmdd format of the last change
-APP_VERSION="20241103"
+APP_VERSION="20241207"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
@@ -16,6 +16,7 @@ PORT_PATH=""
 # Used to keep track of the requested ports and their status
 APP_LIST=""
 APP_SKIP=""
+SEARCH_LIST=""
 # CMD is used with commands that require at least one port to be passed
 CMD=""
 # Was there an issue that could wait?
@@ -29,8 +30,8 @@ usage () {
     out="
 Helper script for working with the local ports tree.
  
-    ${app} [abandoned | appvers | auto | distclean | fetchindex | old | pull 
-           | setup | work]
+    ${app} [abandoned | auto | distclean | fetchindex | old | pull | setup 
+            | verison | work]
     ${app} command port1 [port2...]
  
 command is required and must be one of the following:
@@ -47,7 +48,7 @@ command is required and must be one of the following:
  p | pull      : Get the most recent version of the ports, then show which can 
                  be updated.
  S | setup     : Setup the local ports tree. Should only be needed once.
- V | appvers   : Show the script version and some basic information.
+ V | version   : Show the script version and some basic information.
  W | work      : Look for any \"work\" subdirectories and clean them if found.
                  This is a best guess process.
 
@@ -68,13 +69,21 @@ The following commands require at least one port name to be passed.
  r | u | reinstall | update :
                  For ports already installed. Reinstall / update the requested 
                  port(s).
+ R | Reinstall : Search for a group of installed ports and reinstall them.
  s | showconf  : Show the configuration options for a port only.
+ U | Update    : Search for a group of superseded ports and update them.
 
 Port name is the \"base name\" of the port. Do not included the current version
 or the new version numbers. For example, to update vim to the latest version 
 (assuming already installed):
 
     ${app} r vim
+
+Reinstall and Update (capital R/U) will search for and list all ports based on
+a matched part of a port name. Helpful for updating a group of ports without
+the need to type the entire list. Reinstall will search the installed list of
+ports. Update will only look at superseded ports. You can search on more than
+one term.
 "
     printf "%s\n" "${out}"
     exit
@@ -122,7 +131,7 @@ issueChk () {
 
 # Use the port index to locate the correct path for the port
 getPortPath () {
-    PORT_PATH=`awk -F'|' '$1 ~ /^'${1}'-([0-9._])+/ && !/^'${1}'-([0-9._])+([\-])+/ {print $2}' "${PORT_INDEX}" | uniq`
+    PORT_PATH=`pkg query "${PORTS_DIR}/%o" "${1}"`
 }
 
 # Expects $@ to be passed. Should be called before a port cmd 
@@ -145,7 +154,7 @@ getAppList () {
     done
     if [ -n "${APP_SKIP}" ]
     then
-        printf "\nThe following are invalid.\n%s\nSkip these and continue [s|enter] or cancel [c]: " "${APP_SKIP}"
+        printf "\nThe following are invalid.\n%s\nSkip these and continue [S/enter] or cancel [c]: " "${APP_SKIP}"
         read ans
         if [ "${ans}" = "c" -o "${ans}" = "C" ]
         then
@@ -197,9 +206,11 @@ If you do not have a ports tree yet, please make the directory then run the\n\
         o|old) cmdOutOfDate; cmdDisplayOutOfDate; return;;
         p|pull) cmdPull; cmdDisplayOutOfDate; return;;
         r|u|reinstall|update) CMD="cmdReinstall";;
-        S|setup) cmdSetup; return;;
+        R|Reinstall) cmdSearchReinstall $@; return;;
         s|showconf) CMD="cmdConfigShow";;
-        V|appvers) cmdAppVersion; return;;
+        S|setup) cmdSetup; return;;
+        U|Update) cmdSearchUpdate $@; return;;
+        V|version) cmdAppVersion; return;;
         W|work) cmdWorkClean; return;;
         *) usage; return;;
     esac
@@ -264,7 +275,7 @@ checkPull () {
     fi
 }
 
-# Try to locate any ports that are not used and are out of date.
+# Try to locate any ports that are not used by another and are out of date.
 cmdAbandonded () {
     cmdOutOfDate
     if [ -z "${OUT_OF_DATE}" ]
@@ -452,7 +463,7 @@ ports tree being out of sync with the ports index.
 
 Only perform this request if there was an error previously.
 
-Understand the risk and continue? (Y/n) : "
+Understand the risk and continue? [Y/n] : "
     printf "%s" "${warn}"
     read ans
     if [ "${ans}" = "y" -o "${ans}" = "Y" -o "${ans}" = "" ]
@@ -478,7 +489,7 @@ cmdInstall () {
 cmdOutOfDate () {
     checkINDEX
     printf "\nChecking for out of date ports.\n"
-    OUT_OF_DATE=`pkg version -vI -l '<'`
+    OUT_OF_DATE=`pkg version -vI -l'<' | sed 's/needs updating (\(.*\))/\1/'`
 }
 # Get the latest ports tree
 cmdPull () {
@@ -535,6 +546,33 @@ cmdReinstall () {
     # And clean up
     subCmd "clean"
 }
+# Search for all matching ports and reinstall.
+# cmdSearchReinstall - will reinstall all the matched ports that have
+# been installed previously.
+# cmdSearchUpdate - only matched ports that have an update avaliable.
+cmdSearchReinstall () {
+    checkRoot
+    if [ ! "${2}" ]
+    then
+        error "At least one search term is required. It should be the common part of the port(s) you want to reinstall."
+    fi
+    shift
+    SEARCH_LIST=`pkg query -ix %n $@`
+
+    subSearchReinstall $@
+}
+# pkg version -l'<' -ix "prot|boo" | sed 's/\(.*\)-.*/\1/'
+cmdSearchUpdate () {
+    checkRoot
+    if [ ! "${2}" ]
+    then
+        error "At least one search term is required. It should be the common part of the port(s) you want to update."
+    fi
+    shift
+    tmp=`echo "${@}" | sed 's/ /\|/g'`
+    SEARCH_LIST=`pkg version -l'<' -ix "${tmp}" | sed 's/\(.*\)-.*/\1/'`
+    subSearchReinstall $@
+}
 # Use git to pull down the ports
 cmdSetup () {
     printf "\nChecking a few things first...\n"
@@ -576,7 +614,6 @@ cmdWorkClean () {
     fi
     exit
 }
-
 # Will loop over APP_LIST and perform an action
 subCmd () {
     if [ -z "${1}" ]
@@ -642,7 +679,6 @@ subCountDown () {
         done
     done
 }
-
 subMakeFetchIndex () {
     printf "\nGetting the latest ports index file...\n\n"
     cd "${PORTS_DIR}"
@@ -655,6 +691,82 @@ subMakeFetchIndex () {
         printf "\nPorts index file has been updated.\n"
         return 0
     fi
+}
+# Show a list of found ports and offer up some options
+subSearchListConfirm () {
+    ready=0
+    while [ $ready -eq 0 ]
+    do
+        printf "\nFound the following matches:\n"
+        i=1;
+        for p in $SEARCH_LIST
+        do
+            printf " %2s) %s\n" "${i}" "${p}"
+            i=$((i + 1))
+        done
+        max=$i
+
+        printf "\nConfirmation required:\n
+Begin [Y/enter] | Cancel [c/n/x] | Ignore [number] : "
+        read ans
+        if [ -z "${ans}" -o "${ans}" = "y" -o "${ans}" = "Y" ]
+        then
+            ready=1
+            continue
+        elif [ "${ans}" = "c" -o "${ans}" = "C" -o "${ans}" = "x" -o "${ans}" = "X" ]
+        then
+            printf "\nRequest cancelled.\n\n"
+            exit
+        elif [ $ans -gt 0 -a $ans -lt $max ]
+        then
+            tmp=""
+            i=1
+            for x in $SEARCH_LIST
+            do
+                if [ $i -ne $ans ]
+                then
+                    if [ -z "${tmp}" ]
+                    then
+                        tmp="${x}"
+                    else
+                        tmp="${tmp}
+${x}"
+                    fi
+                fi
+                i=$((i + 1))
+            done
+            SEARCH_LIST="${tmp}"
+        else
+            printf "\nInvalid option. Try again.\n"
+        fi
+
+        if [ -z "${SEARCH_LIST}" ]
+        then
+            printf "\nNo ports left on the list!\n\n"
+            exit
+        fi
+    done
+}
+# The common part of cmdSearchUpdate and cmdSearchReinstall
+subSearchReinstall () {
+    if [ -z "${SEARCH_LIST}" ]
+    then
+        printf "\nNo matches found for:\n"
+        printf " %s\n" "${@}"
+        printf "\n"
+        exit
+    fi
+
+    subSearchListConfirm
+
+    if [ -n "${SEARCH_LIST}" ]
+    then
+        APP_LIST=`printf "%s" "${SEARCH_LIST}" | tr '\n' ' '`
+        cmdReinstall
+    else
+        printf "\nNothing to do here.\n\n"
+    fi
+    exit
 }
 
 # A few checks before going further

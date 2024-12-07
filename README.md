@@ -2,8 +2,8 @@
 
 A helper script for working with the FreeBSD ports tree on the local machine.
 
-	app.sh [abandoned | appvers | auto | distclean | fetchindex | old | pull 
-           | setup | work]
+	app.sh [abandoned | auto | distclean | fetchindex | old | pull | setup 
+            | version | work]
 	app.sh command port1 [port2...]
 
 command is required and must be one of the following:
@@ -20,7 +20,7 @@ command is required and must be one of the following:
     p | pull      : Get the most recent version of the ports, then show which can 
                     be updated.
     S | setup     : Setup the local ports tree. Should only be needed once.
-    V | appvers   : Show the script version and some basic information.
+    V | version   : Show the script version and some basic information.
     W | work      : Look for any "work" subdirectories and clean them if found.
                     This is a best guess process.
 
@@ -41,12 +41,20 @@ The following commands require at least one port name to be passed.
     r | u | reinstall | update :
                     For ports already installed. Reinstall / update the requested 
                     port(s).
+    R | Reinstall : Search for a group of installed ports and reinstall them.
     s | showconf  : Show the configuration options for a port only.
+    U | Update    : Search for a group of superseded ports and update them.
 
 Port name is the "base name" of the port. Do not included the current version
 or the new version numbers. For example, to update vim to the latest version 
 (assuming already installed):
 
     app.sh r vim
+
+Reinstall and Update (capital R/U) will search for and list all ports based on
+a matched part of a port name. Helpful for updating a group of ports without
+the need to type the entire list. Reinstall will search the installed list of
+ports. Update will only look at superseded ports. You can search on more than
+one term.
 
 
