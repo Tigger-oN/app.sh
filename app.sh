@@ -4,11 +4,11 @@
 # TODO: 
 # 
 # Version - yyyymmdd format of the last change
-APP_VERSION="20241207"
+APP_VERSION="20241214"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
-PORT_INDEX="${PORTS_DIR}/INDEX-"`freebsd-version -r | awk -F'.' '{print $1}'`
+PORT_INDEX="${PORTS_DIR}/INDEX-"`freebsd-version -r | sed 's/\..*//'`
 # Where are the ports downloaded to?
 PORT_DISTFILES="${PORTS_DIR}/distfiles"
 # Used with each port while it is being worked on.
@@ -102,7 +102,7 @@ error () {
                 if [ ${lng} -gt 80 ]
                 then
                     printf "\n"
-                    lng=0
+                    lng=${#w}
                 fi
                 printf "%s " "${w}"
             done
@@ -117,7 +117,6 @@ error () {
 workMsg () {
     printf "\n[%s] %s...\n" "${1}" "${2}"
 }
-
 # Used to keep track of problems, but save the report until the end.
 issueChk () {
     ISSUE_FOUND=0
@@ -128,12 +127,15 @@ issueChk () {
         ISSUE_FOUND=1
     fi
 }
-
-# Use the port index to locate the correct path for the port
+# Locate the correct path for the port
 getPortPath () {
     PORT_PATH=`pkg query "${PORTS_DIR}/%o" "${1}"`
+    if [ -z "${PORT_PATH}" ]
+    then
+        # May not have been install, locate another way
+        PORT_PATH=`awk -F'|' '$1 ~ /^'${1}'-([0-9._])+/ && !/^'${1}'-([0-9._])+([\-])+/ {print $2}' "${PORT_INDEX}"`
+    fi
 }
-
 # Expects $@ to be passed. Should be called before a port cmd 
 getAppList () {
     checkINDEX
@@ -285,11 +287,9 @@ cmdAbandonded () {
     fi
     printf "\nChecking for standalone and out of date ports...\n"
     abList=""
-    tmp=""
-    for p in ${OUT_OF_DATE}
+    for p in `printf "%s" "${OUT_OF_DATE}" | sed 's/ .*//'`
     do
-        tmp=`pkg delete -n -R "${p}" | grep "Number of packages to be removed" | awk '{print $NF}'`
-        if [ "${tmp}" = "1" ]
+        if [ `pkg query "%#r" "${p}"` -eq 0 ] 
         then
             abList="${abList}
  ${p}"
@@ -338,10 +338,7 @@ cmdAuto () {
     fi
 
     # At this point we have at least one port to update
-    for a in `printf "%s" "${OUT_OF_DATE}" | awk -F'-[0-9]' '{print $1}'`
-    do
-        APP_LIST=${APP_LIST}${a}" "
-    done
+    APP_LIST=`printf "%s" "${OUT_OF_DATE}" | sed 's/-[0-9].*//' | tr '\n' ' '`
     # Make sure everything is clean
     subCmd "clean"
     # Run a conditional config check
@@ -457,6 +454,7 @@ IMPORTANT: Recompile first:"
 }
 # Grab the latest ports index without a pull request.
 cmdFetchIndex () {
+    checkRoot
     warn="
 Grab the latest ports index without a \"pull\" request. This could lead to the
 ports tree being out of sync with the ports index.
@@ -495,7 +493,6 @@ cmdOutOfDate () {
 cmdPull () {
     printf "\nChecking a few things first...\n"
     checkPull
-
     printf "\nRunning fetch and checking if an update is required...\n\n"
     git -C "${PORTS_DIR}" fetch
     if [ $? -gt 0 ]
@@ -595,10 +592,10 @@ cmdSetup () {
 cmdWorkClean () {
     checkRoot
     printf "\nLooking for stray \"work\" directories...\n"
-    WORK=`find ${PORTS_DIR} -type d -name "work*" -depth 3`
-    if [ -n "${WORK}" ]
+    found=`find ${PORTS_DIR} -type d -name "work*" -depth 3`
+    if [ -n "${found}" ]
     then
-        for w in ${WORK}
+        for w in ${found}
         do
             p=${w%/work*}
             p=${p##*/}
