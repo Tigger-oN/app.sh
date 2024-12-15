@@ -4,7 +4,7 @@
 # TODO: 
 # 
 # Version - yyyymmdd format of the last change
-APP_VERSION="20241214"
+APP_VERSION="20241215"
 # It is assumed ports tree is located here. We check anyway.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
@@ -339,10 +339,10 @@ cmdAuto () {
 
     # At this point we have at least one port to update
     APP_LIST=`printf "%s" "${OUT_OF_DATE}" | sed 's/-[0-9].*//' | tr '\n' ' '`
-    # Make sure everything is clean
-    subCmd "clean"
     # Run a conditional config check
     subCmd "config-conditional"
+    # Make sure everything is clean
+    subCmd "clean"
     # Start the update for each app
     subCmd "reinstall"
     # Clean up
@@ -355,9 +355,8 @@ cmdAuto () {
 cmdBuild () {
     checkRoot
     printf "\nBuild started.\n"
-    subCmd "clean"
-    printf "\nConfig option check.\n"
     subCmd "config-conditional"
+    subCmd "clean"
     printf "\nBuilding port.\n"
     subCmd "build"
 }
@@ -475,10 +474,9 @@ Understand the risk and continue? [Y/n] : "
 # Configure, build and install a port
 cmdInstall () {
     checkRoot
-    printf "\nInstall started, cleaning first.\n"
-    subCmd "clean"
-    printf "\nConfig option check.\n"
+    printf "\nInstall started.\n"
     subCmd "config-conditional"
+    subCmd "clean"
     printf "\nBuild and install started\n"
     subCmd "install"
     subCmd "clean"
@@ -534,10 +532,10 @@ cmdReinstall () {
     checkRoot
     printf "\nReinstall started\n"
     local issue=0
-    # Clean all the ports first.
-    subCmd "clean"
     # Conditional config check
     subCmd "config-conditional"
+    # Clean all the ports.
+    subCmd "clean"
     # Start the real update
     subCmd "reinstall"
     # And clean up
