@@ -2,10 +2,14 @@
 # Helper script for working with the local ports tree.
 #
 # TODO: 
-# 
+# git allows for exclusion with .gitignore, but is it worth it? Could this lead
+# to other issues or possible problems? Might be better to waste a few MB on a
+# disk and have no issues later.
+#
 # Version - yyyymmdd format of the last change
-APP_VERSION="20241215"
+APP_VERSION="20241222"
 # It is assumed ports tree is located here. We check anyway.
+# Could move to a question if the directory is missing and store data in an rc.
 PORTS_DIR="/usr/ports"
 # Which INDEX is in use? This is used to check the status of apps and more.
 PORT_INDEX="${PORTS_DIR}/INDEX-"`freebsd-version -r | sed 's/\..*//'`
@@ -45,8 +49,8 @@ command is required and must be one of the following:
  F | fetchindex: Download the latest ports index.
  h | help      : Show this help and exit.
  o | old       : List any superseded ports.
- p | pull      : Get the most recent version of the ports, then show which can 
-                 be updated.
+ p | pull      : Get the most recent version of the ports and list any installed
+                 ports that have been updated.
  S | setup     : Setup the local ports tree. Should only be needed once.
  V | version   : Show the script version and some basic information.
  W | work      : Look for any \"work\" subdirectories and clean them if found.
@@ -66,6 +70,8 @@ The following commands require at least one port name to be passed.
  i | add | install :
                  For new installs only. Configure, build and install the
                  requested port(s).
+ n | notice    : Search UPDATING for the most recent advisory for a port or
+                 ports. IMPORTANT: See \"notice\" below.
  r | u | reinstall | update :
                  For ports already installed. Reinstall / update the requested 
                  port(s).
@@ -79,16 +85,22 @@ or the new version numbers. For example, to update vim to the latest version
 
     ${app} r vim
 
-Reinstall and Update (capital R/U) will search for and list all ports based on
-a matched part of a port name. Helpful for updating a group of ports without
-the need to type the entire list. Reinstall will search the installed list of
-ports. Update will only look at superseded ports. You can search on more than
+\"notice\" will try to locate any advisories within the UPDATING document. Due
+to the lack of standards within UPDATING it is possible to miss an entry that
+could be important. The following entries would be missed because the search
+looks for a full port name, not a wildcard or statement.
+ - 20240705 : sysutils/bacula*-{client,server}
+ - 20240529 : users of TeX*
+
+\"Reinstall\" and \"Update\" (capital R/U) will search for and list all ports based
+on a matched part of a port name. Helpful for updating a group of ports without
+the need to type the entire list. \"Reinstall\" will search the installed list of
+ports. \"Update\" will only look at superseded ports. You can search on more than
 one term.
 "
     printf "%s\n" "${out}"
     exit
 }
-
 error () {
     printf "\nProblem:\n"
     for x in "$@"
@@ -113,9 +125,8 @@ error () {
     done
     exit 1
 }
-
 workMsg () {
-    printf "\n[%s] %s...\n" "${1}" "${2}"
+    printf "[%s] %s...\n" "${1}" "${2}"
 }
 # Used to keep track of problems, but save the report until the end.
 issueChk () {
@@ -167,7 +178,6 @@ getAppList () {
         fi
     fi
 }
-
 checkAfterRun () {
     if [ -n "${ISSUE}" ]
     then
@@ -176,7 +186,6 @@ checkAfterRun () {
         printf "\nAll done.\n\n"
     fi
 }
-
 checkBeforeRun () {
     if [ ! "${1}" ]
     then
@@ -205,6 +214,7 @@ If you do not have a ports tree yet, please make the directory then run the\n\
         d|rm|del|delete|remove) CMD="cmdDelete";;
         F|fetchindex) cmdFetchIndex; return;;
         i|add|install) CMD="cmdInstall";;
+        n|notice) cmdNotice $@; return;;
         o|old) cmdOutOfDate; cmdDisplayOutOfDate; return;;
         p|pull) cmdPull; cmdDisplayOutOfDate; return;;
         r|u|reinstall|update) CMD="cmdReinstall";;
@@ -230,28 +240,24 @@ If you do not have a ports tree yet, please make the directory then run the\n\
         error "No valid ports found for your request."
     fi
 }
-
 checkINDEX () {
     if [ ! -f "${PORT_INDEX}" ]
     then
         error "Unable to locate the port index." "This should have been downloaded after a \"pull\" request." "Was looking for: ${PORT_INDEX}" "You may need to run \"cd ${PORTS_DIR} ; make fetchindex\" first."
     fi
 }
-
 checkGit () {
-    if [ -z `which git` ]
+    if [ -z `command -v git` ]
     then
         error "Unable to locate git. Is it installed?" "You can install git from an existing ports tree (better, slower) or as a binary (much faster) with \"pkg install git\"."
     fi
 }
-
 checkRoot () {
     if [ `whoami` != "root" ]
     then
         error "This request must be performed as the root user."
     fi
 }
-
 # Checks done by setup
 checkSetup () {
     checkRoot
@@ -261,7 +267,6 @@ checkSetup () {
         error "${PORTS_DIR} is not empty." "The current ports tree must be empty to start the setup process." "Did you mean to \"pull\" (update) the ports tree instead?"
     fi
 }
-
 checkPull () {
     checkRoot
     checkGit
@@ -276,7 +281,6 @@ checkPull () {
         error "Looks like "${PORTS_DIR}" is not a git repository." "Please remove all the ports and run setup first."
     fi
 }
-
 # Try to locate any ports that are not used by another and are out of date.
 cmdAbandonded () {
     cmdOutOfDate
@@ -303,7 +307,6 @@ cmdAbandonded () {
     fi
     exit
 }
-
 cmdAppVersion () {
     if [ -f "${PORTS_DIR}/.git/refs/heads/main" ]
     then
@@ -319,13 +322,11 @@ Last pull        %s\n\
 \n" "${APP_VERSION}" "${PORTS_DIR}" "${PORT_INDEX##*/}" "${tmp}"
     exit
 }
-
 cmdAuto () {
     checkRoot
     printf "\nWill get the latest ports tree, check for any out of date ports and update\nthem if found.\n"
     checkGit
     cmdPull
-
     if [ -n "${OUT_OF_DATE}" ]
     then
         printf "\nFound an update for following port(s):\n\n%s\n" "${OUT_OF_DATE}"
@@ -336,7 +337,6 @@ cmdAuto () {
         printf "\nAll ports are up to date.\n\n"
         exit
     fi
-
     # At this point we have at least one port to update
     APP_LIST=`printf "%s" "${OUT_OF_DATE}" | sed 's/-[0-9].*//' | tr '\n' ' '`
     # Run a conditional config check
@@ -361,8 +361,7 @@ cmdBuild () {
     subCmd "build"
 }
 # Set the config options for all the passed ports.
-# NOTE: This is different from the subConfigConditional call as a config
-# request is always performed. This request can be called directly.
+# This request can be called directly.
 cmdConfig () {
     checkRoot
     printf "\nConfig started\n"
@@ -428,27 +427,38 @@ cmdDistClean () {
 }
 # Display any out of date ports. Used AFTER cmdOutOfDate (or not).
 cmdDisplayOutOfDate () {
-    if [ -n "${OUT_OF_DATE}" ]
+    if [ -z "${OUT_OF_DATE}" ]
     then
-        tmp=""
-        warn="
+        printf "\nAll ports are up to date.\n"
+        return
+    fi
+    tmp=""
+    warn="
 ---------------------------
 IMPORTANT: Recompile first:"
-        tmpPkg=`printf "%s" "${OUT_OF_DATE}" | grep "^pkg-"`
-        tmpRst=`printf "%s" "${OUT_OF_DATE}" | grep "^rust-"`
-        if [ -n "$tmpPkg" -a -n "$tmpRst" ]
-        then
-            tmp="${warn} pkg, then rust"
-        elif [ -n "$tmpPkg" ]
-        then
-            tmp="${warn} pkg"
-        elif [ -n "$tmpRst" ]
-        then
-            tmp="${warn} rust"
-        fi
-        printf "\nFound an update for the following port(s):\n\n%s\n" "${OUT_OF_DATE}${tmp}"
+    tmpPkg=`printf "%s" "${OUT_OF_DATE}" | grep "^pkg-"`
+    tmpRst=`printf "%s" "${OUT_OF_DATE}" | grep "^rust-"`
+    if [ -n "$tmpPkg" -a -n "$tmpRst" ]
+    then
+        tmp="${warn} pkg, then rust"
+    elif [ -n "$tmpPkg" ]
+    then
+        tmp="${warn} pkg"
+    elif [ -n "$tmpRst" ]
+    then
+        tmp="${warn} rust"
+    fi
+    printf "\nFound an update for the following port(s):\n\n%s\n" "${OUT_OF_DATE}${tmp}"
+    if [ `printf "%s\n" "${OUT_OF_DATE}" | wc -l` -eq 1 ]
+    then
+        printf "\nCheck for an advisory for this port? [Y/n] "
     else
-        printf "\nAll ports are up to date.\n"
+        printf "\nCheck for any advisories for these ports? [Y/n] "
+    fi
+    read ans
+    if [ -z "${ans}" -o "${ans}" = "y" -o "${ans}" = "Y" ]
+    then
+        cmdNotice `printf "n %s" "${OUT_OF_DATE}" | sed 's/-[0-9].*//' | tr '\n' ' '`
     fi
 }
 # Grab the latest ports index without a pull request.
@@ -480,6 +490,61 @@ cmdInstall () {
     printf "\nBuild and install started\n"
     subCmd "install"
     subCmd "clean"
+}
+# Check UPDATING for the most recent advisory to a port.
+# IMPORTANT: Because there are no real standards for UPDATING it is possible to
+# miss an entry that really should be shown. Examples:
+# - 20240705 : sysutils/bacula*-{client,server}
+# - 20240529 : users of TeX*
+cmdNotice () {
+    if [ ! -f "${PORTS_DIR}/UPDATING" ]
+    then
+        error "Unable to locate the ports UPDATING file. This is required for notice checking."
+    fi
+    getAppList $@
+    if [ -z "${APP_LIST}" ]
+    then
+        printf "\nNo valid ports in the list.\n"
+        return
+    fi
+    printf "\nChecking UPDATING for the most recent application note(s).\n"
+    found=0
+    notes=""
+    for p in ${APP_LIST}
+    do
+        getPortPath "${p}"
+        if [ -n "${PORT_PATH}" ]
+        then
+            s1="${PORT_PATH##${PORTS_DIR}/}"
+            s2=`printf "%s" "${s1}" | sed -e 's/[0-9]\{1,\}/\[&\]/'`
+            x=`grep -m1 -n "${s1}\b\|${s2}\b" "${PORTS_DIR}/UPDATING" | sed 's/:.*//g'`
+            if [ -z "${x}" ]
+            then
+                continue
+            fi
+            a=`sed -n "1,${x}p" "${PORTS_DIR}/UPDATING" | grep -n "^2[0-9]\{4,7\}" | sed 's/:.*//g' | tail -n 1`
+            b=`sed "1,${x}d" "${PORTS_DIR}/UPDATING" | grep -nm 1 "^2[0-9]\{4,7\}" | sed 's/:.*//g'`
+            b=$((x + ${b} - 1))
+            found=$((found + 1))
+            notes="${notes}
+
+"`sed -n "${a},${b}p" "${PORTS_DIR}/UPDATING"`
+        fi
+    done
+    if [ $found -eq 0 ]
+    then
+        printf "\nNo advisories found. Was searching for:\n\n"
+        printf " %s\n" ${APP_LIST}
+    else
+        if [ $found -eq 1 ]
+        then
+            msg="Note found."
+        else
+            msg="Notes found."
+        fi
+        msg="${msg} Using \"less\" to view. Q to close. SPACE, arrows to scroll."
+        printf "\n%s%s\n" "${msg}" "${notes}" | less
+    fi
 }
 # Check for any out of date ports. OUT_OF_DATE will hold the output.
 cmdOutOfDate () {
@@ -542,8 +607,8 @@ cmdReinstall () {
     subCmd "clean"
 }
 # Search for all matching ports and reinstall.
-# cmdSearchReinstall - will reinstall all the matched ports that have
-# been installed previously.
+# cmdSearchReinstall - reinstall all the matched ports that have been installed
+# previously.
 # cmdSearchUpdate - only matched ports that have an update avaliable.
 cmdSearchReinstall () {
     checkRoot
@@ -553,7 +618,6 @@ cmdSearchReinstall () {
     fi
     shift
     SEARCH_LIST=`pkg query -ix %n $@`
-
     subSearchReinstall $@
 }
 # pkg version -l'<' -ix "prot|boo" | sed 's/\(.*\)-.*/\1/'
@@ -640,6 +704,10 @@ subCmd () {
         cd "${PORT_PATH}"
         make ${action}
         issue="$?"
+        if [ "${action}" = "config-conditional" ]
+        then
+            subConfigConditionalDepends "${p}"
+        fi
         if [ ${issue} != "0" ]
         then
             issueChk "${issue}" "${p} - make ${action}"
@@ -674,6 +742,42 @@ subCountDown () {
         done
     done
 }
+# Check for any dependents related to a port, then run config-conditional on
+# that list.
+# NOTE: This will only help with already installed ports that may have changed.
+subConfigConditionalDepends () {
+    dList=`pkg query "%dn" "${1}"`
+    if [ -z "${dList}" ]
+    then
+        return
+    fi
+    cwd=`pwd`
+    for d in ${dList}
+    do
+        workMsg "config-conditional - dependent" "${1} > ${d}"
+        getPortPath "${d}"
+        cd "${PORT_PATH}"
+        make config-conditional
+    done
+    cd "${cwd}"
+}
+# PROBLEM: While this is a nice idea, it will lead to setting config options
+# for ports that are not going to be installed. Being asked to set the odd
+# config option during a build seems to be a better option than forcing people
+# to set options unnecessarily.
+# Run a config-conditional on the dependants of a port. This will prevent any
+# requests during the build.
+#subConfigConditionalAllDepends () {
+#    dList=`make all-depends-list`
+#    if [ -n "${dList}" ]
+#    then
+#        for d in ${dList}
+#        do
+#            cd "${d}"
+#            make config-conditional
+#        done
+#    fi
+#}
 subMakeFetchIndex () {
     printf "\nGetting the latest ports index file...\n\n"
     cd "${PORTS_DIR}"
@@ -700,7 +804,6 @@ subSearchListConfirm () {
             i=$((i + 1))
         done
         max=$i
-
         printf "\nConfirmation required:\n
 Begin [Y/enter] | Cancel [c/n/x] | Ignore [number] : "
         read ans
@@ -708,7 +811,7 @@ Begin [Y/enter] | Cancel [c/n/x] | Ignore [number] : "
         then
             ready=1
             continue
-        elif [ "${ans}" = "c" -o "${ans}" = "C" -o "${ans}" = "x" -o "${ans}" = "X" ]
+        elif [ "${ans}" = "c" -o "${ans}" = "C" -o "${ans}" = "n" -o "${ans}" = "N" -o "${ans}" = "x" -o "${ans}" = "X" ]
         then
             printf "\nRequest cancelled.\n\n"
             exit
@@ -734,7 +837,6 @@ ${x}"
         else
             printf "\nInvalid option. Try again.\n"
         fi
-
         if [ -z "${SEARCH_LIST}" ]
         then
             printf "\nNo ports left on the list!\n\n"
@@ -773,4 +875,3 @@ ${CMD}
 # Should be done, but was there any issues?
 checkAfterRun
 exit
-
