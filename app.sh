@@ -2,31 +2,30 @@
 # Helper script for working with the local ports tree.
 #
 # TODO: 
-# git allows for exclusion with .gitignore, but is it worth it? Could this lead
-# to other issues or possible problems? Might be better to waste a few MB on a
-# disk and have no issues later.
+# - git allows for exclusion with .gitignore, but is it worth it? Could this
+# lead to other issues or possible problems? Might be better to waste a few MB
+# on a disk and have no issues later.
 #
 # Version - yyyymmdd format of the last change
-APP_VERSION="20241222"
-# It is assumed ports tree is located here. We check anyway.
-# Could move to a question if the directory is missing and store data in an rc.
-PORTS_DIR="/usr/ports"
-# Which INDEX is in use? This is used to check the status of apps and more.
-PORT_INDEX="${PORTS_DIR}/INDEX-"`freebsd-version -r | sed 's/\..*//'`
-# Where are the ports downloaded to?
-PORT_DISTFILES="${PORTS_DIR}/distfiles"
+APP_VERSION="20241226"
+# Defaults to /usr/ports or can be set in ${HOME}/.app.sh.rc
+PORTS_DIR=""
+# Used to check the status of apps and more.
+PORT_INDEX=""
+# Where the ports are downloaded to.
+PORT_DISTFILES=""
 # Used with each port while it is being worked on.
 PORT_PATH=""
 # Used to keep track of the requested ports and their status
 APP_LIST=""
 APP_SKIP=""
 SEARCH_LIST=""
-# CMD is used with commands that require at least one port to be passed
+# Used with commands that require at least one port to be passed
 CMD=""
 # Was there an issue that could wait?
 ISSUE=""
 ISSUE_FOUND=0
-# We pass the out of date list around
+# The out of date list
 OUT_OF_DATE=""
 
 usage () {
@@ -34,8 +33,8 @@ usage () {
     out="
 Helper script for working with the local ports tree.
  
-    ${app} [abandoned | auto | distclean | fetchindex | old | pull | setup 
-            | verison | work]
+    ${app} [ abandoned | auto | distclean | fetchindex | old | pull | quick
+            | setup | verison | work ]
     ${app} command port1 [port2...]
  
 command is required and must be one of the following:
@@ -51,6 +50,8 @@ command is required and must be one of the following:
  o | old       : List any superseded ports.
  p | pull      : Get the most recent version of the ports and list any installed
                  ports that have been updated.
+ q | quick     : Run a pull request, check for superseded ports, option to show
+                 any advisories, option to update superseded ports.
  S | setup     : Setup the local ports tree. Should only be needed once.
  V | version   : Show the script version and some basic information.
  W | work      : Look for any \"work\" subdirectories and clean them if found.
@@ -84,6 +85,9 @@ or the new version numbers. For example, to update vim to the latest version
 (assuming already installed):
 
     ${app} r vim
+
+\"quick\" is the most convenient option for bringing ports up to date. It rolls
+the common commands into one call and reduces the amount of typing.
 
 \"notice\" will try to locate any advisories within the UPDATING document. Due
 to the lack of standards within UPDATING it is possible to miss an entry that
@@ -124,6 +128,11 @@ error () {
         fi
     done
     exit 1
+}
+# Only call after PORTS_DIR has been checked to be valid with checkDefaults
+setVariables () {
+    PORT_INDEX="${PORTS_DIR}/INDEX-"`freebsd-version -r | sed 's/\..*//'`
+    PORT_DISTFILES="${PORTS_DIR}/distfiles"
 }
 workMsg () {
     printf "[%s] %s...\n" "${1}" "${2}"
@@ -186,22 +195,79 @@ checkAfterRun () {
         printf "\nAll done.\n\n"
     fi
 }
+# Check for a custom PORTS_DIR, or set the default.
+checkDefaults () {
+    local rc="${HOME}/.app.sh.rc"
+    if [ -f "${rc}" ]
+    then
+        . "${rc}"
+        if [ -n "${PORTS_DIR}" ]
+        then
+            printf "\n---------------------\n\
+IMPORTANT:
+PORTS_DIR set in \"%s\"\n\
+If this directory is invalid, remove or edit the file.\n\
+---------------------\n" "${rc}"
+        fi
+    fi
+    if [ -z "${PORTS_DIR}" ]
+    then
+        PORTS_DIR="/usr/ports"
+    fi
+    if [ -d "${PORTS_DIR}" ]
+    then
+        setVariables
+        return
+    fi
+    # PORTS_DIR value invalid. Need to ask for a valid path.
+    printf "\nUnable to locate the ports tree. Was checking here:\n\n\
+ %s\n\n\
+If you do not have a ports tree yet, please make the directory then run the\n\
+\"setup\" command.\n" "${PORTS_DIR}"
+    printf "\n
+If your ports tree is located somewhere else, type the full path then press
+\"enter\" or leave the path blank (and press \"enter\") to cancel.\n\
+ Path: "
+    read ans
+    loop=1
+    while [ $loop -eq 1 ]
+    do
+        if [ -z "${ans}" ]
+        then
+            printf "\nA ports tree location is required to continue.\n\n"
+            exit 1
+        fi
+        if [ -d "${ans}" ]
+        then
+            printf "\n# Location of the ports tree\nPORTS_DIR=\"%s\"\n" "${ans}" > "${rc}"
+            if [ -f "${rc}" ]
+            then
+                # Feature or bug? It would be possible on a read only system to
+                # have a .app.sh.rc file with an invalid path and at this point
+                # set the PORTS_DIR to something else without updating the .rc
+                printf "\nPorts tree path has been saved to \"%s\"\n" "${rc}"
+                PORTS_DIR="${ans}"
+                setVariables
+                return
+            else
+                printf "\nUnable to save the path details. Was trying to write a file at:\n\
+ %s\n\n\
+Unable to continue.\n\n" "${rc}"
+                exit 1
+            fi
+        fi
+        printf "\nThe typed path is not valid. Try again (or leave blank to cancel)\n\
+ Path: "
+        read ans
+    done
+ }
 checkBeforeRun () {
     if [ ! "${1}" ]
     then
         usage
     fi
-    # Simple check
-    if [ ! -d "${PORTS_DIR}" ]
-    then
-        printf "\nUnable to locate the ports tree. Was checking here:\n\n\
- %s\n\n\
-If you have installed the ports tree somewhere else, please edit \"PORTS_DIR\"\n\
-in this script.\n\n\
-If you do not have a ports tree yet, please make the directory then run the\n\
-\"setup\" command.\n\n" "${PORTS_DIR}"
-        exit 1
-    fi
+    # Check the defaults
+    checkDefaults
     # Check the request is valid
     CMD=""
     case ${1} in
@@ -217,6 +283,7 @@ If you do not have a ports tree yet, please make the directory then run the\n\
         n|notice) cmdNotice $@; return;;
         o|old) cmdOutOfDate; cmdDisplayOutOfDate; return;;
         p|pull) cmdPull; cmdDisplayOutOfDate; return;;
+        q|quick) cmdQuick; return;;
         r|u|reinstall|update) CMD="cmdReinstall";;
         R|Reinstall) cmdSearchReinstall $@; return;;
         s|showconf) CMD="cmdConfigShow";;
@@ -449,17 +516,6 @@ IMPORTANT: Recompile first:"
         tmp="${warn} rust"
     fi
     printf "\nFound an update for the following port(s):\n\n%s\n" "${OUT_OF_DATE}${tmp}"
-    if [ `printf "%s\n" "${OUT_OF_DATE}" | wc -l` -eq 1 ]
-    then
-        printf "\nCheck for an advisory for this port? [Y/n] "
-    else
-        printf "\nCheck for any advisories for these ports? [Y/n] "
-    fi
-    read ans
-    if [ -z "${ans}" -o "${ans}" = "y" -o "${ans}" = "Y" ]
-    then
-        cmdNotice `printf "n %s" "${OUT_OF_DATE}" | sed 's/-[0-9].*//' | tr '\n' ' '`
-    fi
 }
 # Grab the latest ports index without a pull request.
 cmdFetchIndex () {
@@ -499,7 +555,7 @@ cmdInstall () {
 cmdNotice () {
     if [ ! -f "${PORTS_DIR}/UPDATING" ]
     then
-        error "Unable to locate the ports UPDATING file. This is required for notice checking."
+        error "Unable to locate the ports UPDATING file. This is required for checking advisories."
     fi
     getAppList $@
     if [ -z "${APP_LIST}" ]
@@ -552,6 +608,24 @@ cmdOutOfDate () {
     printf "\nChecking for out of date ports.\n"
     OUT_OF_DATE=`pkg version -vI -l'<' | sed 's/needs updating (\(.*\))/\1/'`
 }
+# A question about showing notifications or not.
+cmdPreNotice () {
+    if [ -z "${OUT_OF_DATE}" ]
+    then
+        return
+    fi
+    if [ `printf "%s\n" "${OUT_OF_DATE}" | wc -l` -eq 1 ]
+    then
+        printf "\nCheck for an advisory for this port? [Y/n] "
+    else
+        printf "\nCheck for any advisories for these ports? [Y/n] "
+    fi
+    read ans
+    if [ -z "${ans}" -o "${ans}" = "y" -o "${ans}" = "Y" ]
+    then
+        cmdNotice `printf "n %s" "${OUT_OF_DATE}" | sed 's/-[0-9].*//' | tr '\n' ' '`
+    fi
+}
 # Get the latest ports tree
 cmdPull () {
     printf "\nChecking a few things first...\n"
@@ -591,6 +665,27 @@ cmdPull () {
     fi
     # Check if anything out of date
     cmdOutOfDate
+}
+# A combination of tasks
+cmdQuick () {
+    cmdPull
+    if [ -z "${OUT_OF_DATE}" ]
+    then
+        printf "\nAll ports are up to date.\n"
+        return
+    fi
+    # and now the option to update any from the list
+    cmdDisplayOutOfDate
+    cmdPreNotice
+    printf "\nDo you want to update any superseded ports? [Y/n] "
+    read ans
+    if [ -z "${ans}" -o "${ans}" = "y" -o "${ans}" = "Y" ]
+    then
+        SEARCH_LIST=`printf "%s" "${OUT_OF_DATE}" | sed 's/\(.*\)-.*/\1/' | tr '\n' ' '`
+        subSearchReinstall
+    fi
+    checkAfterRun
+    exit
 }
 # Reinstall / update requested port(s)
 cmdReinstall () {
@@ -704,14 +799,13 @@ subCmd () {
         cd "${PORT_PATH}"
         make ${action}
         issue="$?"
-        if [ "${action}" = "config-conditional" ]
-        then
-            subConfigConditionalDepends "${p}"
-        fi
         if [ ${issue} != "0" ]
         then
             issueChk "${issue}" "${p} - make ${action}"
             continue
+        elif [ "${action}" = "config-conditional" ]
+        then
+            subConfigConditionalDepends "${p}"
         fi
         if [ -n "${action2}" ]
         then
@@ -742,9 +836,9 @@ subCountDown () {
         done
     done
 }
-# Check for any dependents related to a port, then run config-conditional on
-# that list.
-# NOTE: This will only help with already installed ports that may have changed.
+# For any dependents related to a port run config-conditional. Will only help
+# with already installed ports that may have changed. During the build stage it
+# is still possible to be asked to configure a new dependent.
 subConfigConditionalDepends () {
     dList=`pkg query "%dn" "${1}"`
     if [ -z "${dList}" ]
@@ -761,23 +855,6 @@ subConfigConditionalDepends () {
     done
     cd "${cwd}"
 }
-# PROBLEM: While this is a nice idea, it will lead to setting config options
-# for ports that are not going to be installed. Being asked to set the odd
-# config option during a build seems to be a better option than forcing people
-# to set options unnecessarily.
-# Run a config-conditional on the dependants of a port. This will prevent any
-# requests during the build.
-#subConfigConditionalAllDepends () {
-#    dList=`make all-depends-list`
-#    if [ -n "${dList}" ]
-#    then
-#        for d in ${dList}
-#        do
-#            cd "${d}"
-#            make config-conditional
-#        done
-#    fi
-#}
 subMakeFetchIndex () {
     printf "\nGetting the latest ports index file...\n\n"
     cd "${PORTS_DIR}"
@@ -844,7 +921,7 @@ ${x}"
         fi
     done
 }
-# The common part of cmdSearchUpdate and cmdSearchReinstall
+# The common part of cmdQuick, cmdSearchUpdate and cmdSearchReinstall
 subSearchReinstall () {
     if [ -z "${SEARCH_LIST}" ]
     then
