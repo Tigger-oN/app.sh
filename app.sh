@@ -5,9 +5,14 @@
 # - git allows for exclusion with .gitignore, but is it worth it? Could this
 # lead to other issues or possible problems? Might be better to waste a few MB
 # on a disk and have no issues later.
+# - Update needs to have a clear statement when used without success or when
+# the results may be less than expected.
+# - At the end of quick, there is no "report". Problem is "exit" at end of
+# subSearchReinstall. Will be affecting all calls to subSearchReinstall
+# - Option to show a port description. Not limited to installed.
 #
 # Version - yyyymmdd format of the last change
-APP_VERSION="20241226"
+APP_VERSION="20241229"
 # Defaults to /usr/ports or can be set in ${HOME}/.app.sh.rc
 PORTS_DIR=""
 # Used to check the status of apps and more.
@@ -285,10 +290,10 @@ checkBeforeRun () {
         p|pull) cmdPull; cmdDisplayOutOfDate; return;;
         q|quick) cmdQuick; return;;
         r|u|reinstall|update) CMD="cmdReinstall";;
-        R|Reinstall) cmdSearchReinstall $@; return;;
+        R|Reinstall) CMD="Reinstall"; cmdSearchReinstall $@; return;;
         s|showconf) CMD="cmdConfigShow";;
         S|setup) cmdSetup; return;;
-        U|Update) cmdSearchUpdate $@; return;;
+        U|Update) CMD="Update"; cmdSearchUpdate $@; return;;
         V|version) cmdAppVersion; return;;
         W|work) cmdWorkClean; return;;
         *) usage; return;;
@@ -714,6 +719,8 @@ cmdSearchReinstall () {
     shift
     SEARCH_LIST=`pkg query -ix %n $@`
     subSearchReinstall $@
+    checkAfterRun
+    exit
 }
 # pkg version -l'<' -ix "prot|boo" | sed 's/\(.*\)-.*/\1/'
 cmdSearchUpdate () {
@@ -726,6 +733,8 @@ cmdSearchUpdate () {
     tmp=`echo "${@}" | sed 's/ /\|/g'`
     SEARCH_LIST=`pkg version -l'<' -ix "${tmp}" | sed 's/\(.*\)-.*/\1/'`
     subSearchReinstall $@
+    checkAfterRun
+    exit
 }
 # Use git to pull down the ports
 cmdSetup () {
@@ -925,7 +934,12 @@ ${x}"
 subSearchReinstall () {
     if [ -z "${SEARCH_LIST}" ]
     then
-        printf "\nNo matches found for:\n"
+        if [ "${CMD}" = "Update" ]
+        then
+            printf "\nNo results looking for superseded ports that matched:\n"
+        else
+            printf "\nNo results looking for installed ports that matched:\n"
+        fi
         printf " %s\n" "${@}"
         printf "\n"
         exit
@@ -940,7 +954,6 @@ subSearchReinstall () {
     else
         printf "\nNothing to do here.\n\n"
     fi
-    exit
 }
 
 # A few checks before going further
