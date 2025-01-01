@@ -9,7 +9,7 @@ A helper script for working with the FreeBSD ports tree on the local machine.
 command is required and must be one of the following:
 
     a | abandoned : Use result with caution. Check for any superseded ports that 
-                    *may not* be in use.
+                    *may not* be in use. These are ports without dependents.
     A | auto      : Without confirmation, get the latest ports tree then update any
                     that have been superseded.
     C | distclean : Remove the ports/distfiles data for the passed port(s) or all
@@ -37,6 +37,8 @@ The following commands require at least one port name to be passed.
                     confirmation is required.
     D | deinstall : Use "make deinstall" in the port tree directory. Only the
                     requested port will be removed.
+    dp | depend   : Display dependencies for a port or list.
+    dr | dependrev: Display ports that depend on the passed port or list.
     i | add | install :
                     For new installs only. Configure, build and install the
                     requested port(s).
@@ -57,6 +59,12 @@ or the new version numbers. For example, to update vim to the latest version
 
 `quick` is the most convenient option for bringing ports up to date. It rolls
 the common commands into one call and reduces the amount of typing.
+
+`depend` will display the dependencies for a passed port or list of ports. The
+items on the right are required by the port or ports. Results are limited to installed ports.
+
+`dependrev` will display ports that are needed by the passed port or list of
+ports. The items on the left are required by the passed port or ports. Results are limited to installed ports.
 
 `notice` will try to locate any advisories within the UPDATING document. Due
 to the lack of standards within UPDATING it is possible to miss an entry that

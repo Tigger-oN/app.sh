@@ -5,14 +5,10 @@
 # - git allows for exclusion with .gitignore, but is it worth it? Could this
 # lead to other issues or possible problems? Might be better to waste a few MB
 # on a disk and have no issues later.
-# - Update needs to have a clear statement when used without success or when
-# the results may be less than expected.
-# - At the end of quick, there is no "report". Problem is "exit" at end of
-# subSearchReinstall. Will be affecting all calls to subSearchReinstall
-# - Option to show a port description. Not limited to installed.
+# - Option to show a port description. Not limited to installed ports.
 #
 # Version - yyyymmdd format of the last change
-APP_VERSION="20241229"
+APP_VERSION="20250101"
 # Defaults to /usr/ports or can be set in ${HOME}/.app.sh.rc
 PORTS_DIR=""
 # Used to check the status of apps and more.
@@ -45,7 +41,7 @@ Helper script for working with the local ports tree.
 command is required and must be one of the following:
  
  a | abandoned : Use result with caution. Check for any superseded ports that 
-                 *may not* be in use.
+                 *may not* be in use. These are ports without dependents.
  A | auto      : Without confirmation, get the latest ports tree then update any
                  that have been superseded.
  C | distclean : Remove the ports/distfiles data for the passed port(s) or all
@@ -73,6 +69,8 @@ The following commands require at least one port name to be passed.
                  confirmation is required.
  D | deinstall : Use \"make deinstall\" in the port tree directory. Only the
                  requested port will be removed.
+ dp | depend   : Display dependencies for a port or list.
+ dr | dependrev: Display ports that depend on the passed port or list.
  i | add | install :
                  For new installs only. Configure, build and install the
                  requested port(s).
@@ -93,6 +91,14 @@ or the new version numbers. For example, to update vim to the latest version
 
 \"quick\" is the most convenient option for bringing ports up to date. It rolls
 the common commands into one call and reduces the amount of typing.
+
+\"depend\" will display the dependencies for a passed port or list of ports. The
+items on the right are required by the port or ports. Results are limited to
+installed ports
+
+\"dependrev\" will display ports that are needed by the passed port or list of
+ports. The items on the left are required by the passed port or ports. Results
+are limited to installed ports.
 
 \"notice\" will try to locate any advisories within the UPDATING document. Due
 to the lack of standards within UPDATING it is possible to miss an entry that
@@ -283,6 +289,8 @@ checkBeforeRun () {
         c|config) CMD="cmdConfig";;
         D|deinstall) CMD="cmdDeinstall";;
         d|rm|del|delete|remove) CMD="cmdDelete";;
+        dp|depend) CMD="cmdDepend";;
+        dr|dependrev) CMD="cmdDependRev";;
         F|fetchindex) cmdFetchIndex; return;;
         i|add|install) CMD="cmdInstall";;
         n|notice) cmdNotice $@; return;;
@@ -453,6 +461,71 @@ cmdDeinstall () {
     checkRoot
     printf "\nDeinstalling the requested port(s).\n"
     subCmd "deinstall"
+}
+# Shared logic with cmdDependRev, minor display diff
+cmdDepend () {
+    printf "\nChecking for dependencies.\n"
+    no_list=""
+    no_count=0
+    info=`pkg query "%n => %do" ${APP_LIST}`
+    if [ -z "${info}" ]
+    then
+        printf "\nNo dependencies found for:\n\n"
+        printf " %s\n" ${APP_LIST}
+        return
+    fi
+    # At this point we have a list.
+    subLeftWidth "${info}"
+    for p in ${APP_LIST}
+    do
+        if [ `printf "%s" "${info}" | grep -cm 1 "${p} =>"` -eq 0 ]
+        then
+            no_count=$((no_count + 1))
+            no_list="${no_list}
+${p}"
+        fi
+    done
+    LEFT=$((LEFT + 1)) 
+    printf "\nFound dependencies:\n\n"
+    printf "%s" "${info}" | awk -F '=>' -v p="${LEFT}" 'BEGIN{FS=OFS} $1=sprintf("%"p"s",$1)'
+    if [ $no_count -gt 0 ]
+    then
+        printf "\nNo dependencies found for:\n\n"
+        printf " %s\n" ${no_list}
+    fi
+}
+# Shared logic with cmdDepend, minor display diff
+cmdDependRev () {
+    printf "\nChecking for ports that depend on the passed port(s).\n"
+    no_list=""
+    no_count=0
+    info=`pkg query "%ro => %n" ${APP_LIST}`
+    if [ -z "${info}" ]
+    then
+        printf "\nNo ports depend on:\n\n"
+        printf " %s\n" ${APP_LIST}
+        return
+    fi
+    # At this point we have a list
+    subLeftWidth "${info}" 
+    for p in ${APP_LIST}
+    do
+        if [ `printf "%s" "${info}" | grep -cm 1 "=> ${p}"` -eq 0 ]
+        then
+            no_count=$((no_count + 1))
+            no_list="${no_list}
+${p}"
+        fi
+    done
+
+    LEFT=$((LEFT + 1)) 
+    printf "\nFound dependencies:\n\n"
+    printf "%s" "${info}" | awk -F '=>' -v p="${LEFT}" 'BEGIN{FS=OFS} $1=sprintf("%"p"s",$1)'
+    if [ $no_count -gt 0 ]
+    then
+        printf "\nNo ports depend on:\n\n"
+        printf " %s\n" ${no_list}
+    fi
 }
 # Removes the ports/dist files for the passed ports or all ports.
 # Note: distclean also cleans the port dir
@@ -864,6 +937,20 @@ subConfigConditionalDepends () {
     done
     cd "${cwd}"
 }
+# Work out the width of the left col. Value set to $LEFT
+subLeftWidth () {
+    LEFT=0
+    local IFS="
+"
+    x=`printf "%s" "${1}" | sed 's/ .*//' | uniq`
+    for l in ${x}
+    do
+        if [ ${#l} -gt $LEFT ]
+        then
+            LEFT=${#l}
+        fi
+    done
+}
 subMakeFetchIndex () {
     printf "\nGetting the latest ports index file...\n\n"
     cd "${PORTS_DIR}"
@@ -936,9 +1023,9 @@ subSearchReinstall () {
     then
         if [ "${CMD}" = "Update" ]
         then
-            printf "\nNo results looking for superseded ports that matched:\n"
+            printf "\nNo results looking for superseded ports that matched:\n\n"
         else
-            printf "\nNo results looking for installed ports that matched:\n"
+            printf "\nNo results looking for installed ports that matched:\n\n"
         fi
         printf " %s\n" "${@}"
         printf "\n"
