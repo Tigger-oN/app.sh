@@ -31,14 +31,14 @@ The following commands require at least one port name to be passed.
     b | build     : Configure (if needed) and build but not install the requested
                     application(s).
     c | config    : Set configuration options for a port only.
+    dp | depend   : Display dependencies and reliances for a port or list.
+    ds | descript : Show the port description for a port or list.
     d | rm | del | delete | remove :
                     (Recommended) Delete the requested port(s) using
                     "pkg delete <port>". Will remove all related port(s). A
                     confirmation is required.
     D | deinstall : Use "make deinstall" in the port tree directory. Only the
                     requested port will be removed.
-    dp | depend   : Display dependencies for a port or list.
-    dr | dependrev: Display ports that depend on the passed port or list.
     i | add | install :
                     For new installs only. Configure, build and install the
                     requested port(s).
@@ -60,11 +60,8 @@ or the new version numbers. For example, to update vim to the latest version
 `quick` is the most convenient option for bringing ports up to date. It rolls
 the common commands into one call and reduces the amount of typing.
 
-`depend` will display the dependencies for a passed port or list of ports. The
-items on the right are required by the port or ports. Results are limited to installed ports.
-
-`dependrev` will display ports that are needed by the passed port or list of
-ports. The items on the left are required by the passed port or ports. Results are limited to installed ports.
+`depend` will display a two column list. Items on the left will have a reliance
+on the right. Results are limited to installed ports.
 
 `notice` will try to locate any advisories within the UPDATING document. Due
 to the lack of standards within UPDATING it is possible to miss an entry that

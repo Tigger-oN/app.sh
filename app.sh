@@ -5,10 +5,11 @@
 # - git allows for exclusion with .gitignore, but is it worth it? Could this
 # lead to other issues or possible problems? Might be better to waste a few MB
 # on a disk and have no issues later.
-# - Option to show a port description. Not limited to installed ports.
+# - checkDefaults : How to handle a read only system with an invalid path in an
+# .rc
 #
 # Version - yyyymmdd format of the last change
-APP_VERSION="20250101"
+APP_VERSION="20250105"
 # Defaults to /usr/ports or can be set in ${HOME}/.app.sh.rc
 PORTS_DIR=""
 # Used to check the status of apps and more.
@@ -63,14 +64,14 @@ The following commands require at least one port name to be passed.
  b | build     : Configure (if needed) and build but not install the requested
                  application(s).
  c | config    : Set configuration options for a port only.
+ dp | depend   : Display dependencies and reliances for a port or list.
+ ds | descript : Show the port description for a port or list.
  d | rm | del | delete | remove :
                  (Recommended) Delete the requested port(s) using
                  \"pkg delete <port>\". Will remove all related port(s). A
                  confirmation is required.
  D | deinstall : Use \"make deinstall\" in the port tree directory. Only the
                  requested port will be removed.
- dp | depend   : Display dependencies for a port or list.
- dr | dependrev: Display ports that depend on the passed port or list.
  i | add | install :
                  For new installs only. Configure, build and install the
                  requested port(s).
@@ -92,13 +93,8 @@ or the new version numbers. For example, to update vim to the latest version
 \"quick\" is the most convenient option for bringing ports up to date. It rolls
 the common commands into one call and reduces the amount of typing.
 
-\"depend\" will display the dependencies for a passed port or list of ports. The
-items on the right are required by the port or ports. Results are limited to
-installed ports
-
-\"dependrev\" will display ports that are needed by the passed port or list of
-ports. The items on the left are required by the passed port or ports. Results
-are limited to installed ports.
+\"depend\" will display a two column list. Items on the left will have a reliance
+on the right. Results are limited to installed ports.
 
 \"notice\" will try to locate any advisories within the UPDATING document. Due
 to the lack of standards within UPDATING it is possible to miss an entry that
@@ -217,7 +213,7 @@ checkDefaults () {
             printf "\n---------------------\n\
 IMPORTANT:
 PORTS_DIR set in \"%s\"\n\
-If this directory is invalid, remove or edit the file.\n\
+If this directory is invalid, edit or remove the file.\n\
 ---------------------\n" "${rc}"
         fi
     fi
@@ -255,7 +251,9 @@ If your ports tree is located somewhere else, type the full path then press
             then
                 # Feature or bug? It would be possible on a read only system to
                 # have a .app.sh.rc file with an invalid path and at this point
-                # set the PORTS_DIR to something else without updating the .rc
+                # set the PORTS_DIR to something else without updating the .rc.
+                # Could check write permissions and advise the path has been
+                # set this time only due to lack of permission on .rc.
                 printf "\nPorts tree path has been saved to \"%s\"\n" "${rc}"
                 PORTS_DIR="${ans}"
                 setVariables
@@ -290,7 +288,7 @@ checkBeforeRun () {
         D|deinstall) CMD="cmdDeinstall";;
         d|rm|del|delete|remove) CMD="cmdDelete";;
         dp|depend) CMD="cmdDepend";;
-        dr|dependrev) CMD="cmdDependRev";;
+        ds|descript) CMD="cmdDescription";;
         F|fetchindex) cmdFetchIndex; return;;
         i|add|install) CMD="cmdInstall";;
         n|notice) cmdNotice $@; return;;
@@ -462,70 +460,59 @@ cmdDeinstall () {
     printf "\nDeinstalling the requested port(s).\n"
     subCmd "deinstall"
 }
-# Shared logic with cmdDependRev, minor display diff
+# Display dependencies and reliances for a port.
 cmdDepend () {
-    printf "\nChecking for dependencies.\n"
+    printf "\nChecking for dependencies (both ways).\n"
+    info=`pkg query "%n => %do" ${APP_LIST}; pkg query "%ro => %n" ${APP_LIST}`
+    msg="No dependencies found looking both ways for:"
     no_list=""
     no_count=0
-    info=`pkg query "%n => %do" ${APP_LIST}`
     if [ -z "${info}" ]
     then
-        printf "\nNo dependencies found for:\n\n"
-        printf " %s\n" ${APP_LIST}
-        return
-    fi
-    # At this point we have a list.
-    subLeftWidth "${info}"
-    for p in ${APP_LIST}
-    do
-        if [ `printf "%s" "${info}" | grep -cm 1 "${p} =>"` -eq 0 ]
-        then
-            no_count=$((no_count + 1))
-            no_list="${no_list}
-${p}"
-        fi
-    done
-    LEFT=$((LEFT + 1)) 
-    printf "\nFound dependencies:\n\n"
-    printf "%s" "${info}" | awk -F '=>' -v p="${LEFT}" 'BEGIN{FS=OFS} $1=sprintf("%"p"s",$1)'
-    if [ $no_count -gt 0 ]
-    then
-        printf "\nNo dependencies found for:\n\n"
-        printf " %s\n" ${no_list}
-    fi
-}
-# Shared logic with cmdDepend, minor display diff
-cmdDependRev () {
-    printf "\nChecking for ports that depend on the passed port(s).\n"
-    no_list=""
-    no_count=0
-    info=`pkg query "%ro => %n" ${APP_LIST}`
-    if [ -z "${info}" ]
-    then
-        printf "\nNo ports depend on:\n\n"
+        printf "\n%s\n\n" "${msg}"
         printf " %s\n" ${APP_LIST}
         return
     fi
     # At this point we have a list
-    subLeftWidth "${info}" 
+    subLeftWidth "${info}"
     for p in ${APP_LIST}
     do
-        if [ `printf "%s" "${info}" | grep -cm 1 "=> ${p}"` -eq 0 ]
+        if [ `printf "%s" "${info}" | grep -cm 1 "=> ${p}\b\|\b${p} =>"` -eq 0 ]
         then
             no_count=$((no_count + 1))
             no_list="${no_list}
 ${p}"
         fi
     done
-
     LEFT=$((LEFT + 1)) 
     printf "\nFound dependencies:\n\n"
     printf "%s" "${info}" | awk -F '=>' -v p="${LEFT}" 'BEGIN{FS=OFS} $1=sprintf("%"p"s",$1)'
     if [ $no_count -gt 0 ]
     then
-        printf "\nNo ports depend on:\n\n"
+        printf "\n%s\n\n" "${msg}"
         printf " %s\n" ${no_list}
     fi
+}
+# Display the port description text for the passed port(s).
+cmdDescription () {
+    printf "\nGetting the description(s).\n"
+    descr=""
+    for p in ${APP_LIST}
+    do
+        getPortPath "${p}"
+        tPath="${tPath}\"${PORT_PATH}/pkg-descr\" "
+        if [ -f "${PORT_PATH}/pkg-descr" ]
+        then
+            x=`cat "${PORT_PATH}/pkg-descr"`
+            descr="${descr}
+=> Description for ${p}
+
+${x}
+"
+        fi
+    done 
+    #printf "Using \"less\" to view. Q to close. SPACE, arrows to scroll.\n%s" "${descr}" | less
+    printf "%s" "${descr}"
 }
 # Removes the ports/dist files for the passed ports or all ports.
 # Note: distclean also cleans the port dir
@@ -978,7 +965,7 @@ subSearchListConfirm () {
         done
         max=$i
         printf "\nConfirmation required:\n
-Begin [Y/enter] | Cancel [c/n/x] | Ignore [number] : "
+Begin [Y/enter] | Cancel [c/n/x] | Ignore [numbers] : "
         read ans
         if [ -z "${ans}" -o "${ans}" = "y" -o "${ans}" = "Y" ]
         then
@@ -988,27 +975,32 @@ Begin [Y/enter] | Cancel [c/n/x] | Ignore [number] : "
         then
             printf "\nRequest cancelled.\n\n"
             exit
-        elif [ $ans -gt 0 -a $ans -lt $max ]
-        then
-            tmp=""
+        else
+            # We only want the numbers here
+            exclude=""
             i=1
-            for x in $SEARCH_LIST
+            for x in ${SEARCH_LIST}
             do
-                if [ $i -ne $ans ]
-                then
-                    if [ -z "${tmp}" ]
+                for n in ${ans}
+                do
+                    if [ "${i}" = "${n}" ]
                     then
-                        tmp="${x}"
-                    else
-                        tmp="${tmp}
-${x}"
+                       exclude="${exclude}${x} "
                     fi
-                fi
+                done
                 i=$((i + 1))
             done
-            SEARCH_LIST="${tmp}"
-        else
-            printf "\nInvalid option. Try again.\n"
+            # Invalid request check
+            if [ -z "${exclude}" ]
+            then
+                printf "\nInvalid option. Try again.\n"
+                continue
+            fi
+            # clean up the list
+            for x in ${exclude}
+            do
+                SEARCH_LIST=`printf " %s " "${SEARCH_LIST}" | sed "s/ ${x} / /; s/^ //; s/ \$//"`
+            done
         fi
         if [ -z "${SEARCH_LIST}" ]
         then
