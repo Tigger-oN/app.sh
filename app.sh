@@ -9,7 +9,7 @@
 # .rc
 #
 # Version - yyyymmdd format of the last change
-APP_VERSION="20250105"
+APP_VERSION="20250106"
 # Defaults to /usr/ports or can be set in ${HOME}/.app.sh.rc
 PORTS_DIR=""
 # Used to check the status of apps and more.
@@ -29,6 +29,8 @@ ISSUE=""
 ISSUE_FOUND=0
 # The out of date list
 OUT_OF_DATE=""
+# Used if a make fails. List of apps to try again at the end.
+TRY_AGAIN=""
 
 usage () {
     app=${0##*/}
@@ -149,9 +151,12 @@ issueChk () {
     ISSUE_FOUND=0
     if [ "${1}" != "0" ]
     then
-        ISSUE="${ISSUE}
+        if [ `printf "%s" "${ISSUE}" | grep -cm1 "${2}"` -eq 0 ]
+        then
+            ISSUE="${ISSUE}
  ${2}"
-        ISSUE_FOUND=1
+            ISSUE_FOUND=1
+        fi
     fi
 }
 # Locate the correct path for the port
@@ -746,7 +751,7 @@ cmdQuick () {
     read ans
     if [ -z "${ans}" -o "${ans}" = "y" -o "${ans}" = "Y" ]
     then
-        SEARCH_LIST=`printf "%s" "${OUT_OF_DATE}" | sed 's/\(.*\)-.*/\1/' | tr '\n' ' '`
+        SEARCH_LIST=`printf "%s" "${OUT_OF_DATE}" | sed 's/\(.*\)-.*/\1/' | sort | uniq | tr '\n' ' '`
         subSearchReinstall
     fi
     checkAfterRun
@@ -756,15 +761,16 @@ cmdQuick () {
 cmdReinstall () {
     checkRoot
     printf "\nReinstall started\n"
-    local issue=0
     # Conditional config check
     subCmd "config-conditional"
     # Clean all the ports.
     subCmd "clean"
     # Start the real update
     subCmd "reinstall"
-    # And clean up
+    # Clean up
     subCmd "clean"
+    # Check the try again list
+    cmdTryAgain
 }
 # Search for all matching ports and reinstall.
 # cmdSearchReinstall - reinstall all the matched ports that have been installed
@@ -777,8 +783,9 @@ cmdSearchReinstall () {
         error "At least one search term is required. It should be the common part of the port(s) you want to reinstall."
     fi
     shift
-    SEARCH_LIST=`pkg query -ix %n $@`
-    subSearchReinstall $@
+    SEARCH_LIST=`pkg query -ix %n $@ | sort | uniq | tr '\n' ' '`
+    # Pass the args in case there are no results.
+    subSearchReinstall "${@}"
     checkAfterRun
     exit
 }
@@ -791,8 +798,9 @@ cmdSearchUpdate () {
     fi
     shift
     tmp=`echo "${@}" | sed 's/ /\|/g'`
-    SEARCH_LIST=`pkg version -l'<' -ix "${tmp}" | sed 's/\(.*\)-.*/\1/'`
-    subSearchReinstall $@
+    SEARCH_LIST=`pkg version -l'<' -ix "${tmp}" | sed 's/\(.*\)-.*/\1/' | sort | uniq | tr '\n' ' '`
+    # Pass the args in case there are no results.
+    subSearchReinstall "${@}"
     checkAfterRun
     exit
 }
@@ -812,6 +820,27 @@ cmdSetup () {
     subMakeFetchIndex
     printf "\nThe ports tree has been setup. Use \"pull\" to keep the ports tree in sync.\n\n"
     exit
+}
+# If a port fails to build and reinstall, we try again (once only) at the end
+# of the list.
+cmdTryAgain () {
+    # Only try again if there is a differnce in the lists.
+    if [ -z "${TRY_AGAIN}" -o "${APP_LIST}" = "${TRY_AGAIN}" ]
+    then
+        return
+    fi
+    # Make the TRY_AGAIN list the APP_LIST
+    APP_LIST="${TRY_AGAIN}"
+    # Clear the ISSUE and ISSUE_FOUND
+    ISSUE_FOUND=0
+    ISSUE=""
+    # And try again
+    printf "\nTrying again for:\n"
+    printf " %s\n" ${TRY_AGAIN}
+    printf "\n"
+    subCmd "clean"
+    subCmd "reinstall"
+    subCmd "clean"
 }
 # Look for any work directories in a port, list, then clean them.
 # How does this happen? Build failures are my guess.
@@ -871,6 +900,7 @@ subCmd () {
         if [ ${issue} != "0" ]
         then
             issueChk "${issue}" "${p} - make ${action}"
+            subTryAgain "${p}"
             continue
         elif [ "${action}" = "config-conditional" ]
         then
@@ -958,7 +988,7 @@ subSearchListConfirm () {
     do
         printf "\nFound the following matches:\n"
         i=1;
-        for p in $SEARCH_LIST
+        for p in ${SEARCH_LIST}
         do
             printf " %2s) %s\n" "${i}" "${p}"
             i=$((i + 1))
@@ -1028,10 +1058,23 @@ subSearchReinstall () {
 
     if [ -n "${SEARCH_LIST}" ]
     then
-        APP_LIST=`printf "%s" "${SEARCH_LIST}" | tr '\n' ' '`
+        APP_LIST=`printf "%s" "${SEARCH_LIST}"`
         cmdReinstall
     else
         printf "\nNothing to do here.\n\n"
+    fi
+}
+# We only want to "try again" once. If this passed port is already on the list, we skip it
+subTryAgain () {
+    if [ -z "${TRY_AGAIN}" ]
+    then
+        TRY_AGAIN="${1} "
+        return
+    fi
+    # Check if we already have the on the list
+    if [ `printf "%s" "${TRY_AGAIN}" | grep -cm1 "${1}"` -eq 0 ]
+    then
+        TRY_AGAIN="${TRY_AGAIN}${1} "
     fi
 }
 
