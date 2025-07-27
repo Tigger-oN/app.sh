@@ -7,9 +7,11 @@
 # on a disk and have no issues later.
 # - checkDefaults : How to handle a read only system with an invalid path in an
 # .rc
+# - subCountDown : This could be cleaner. Should be able to get rid of the
+# second loop.
 #
 # Version - yyyymmdd format of the last change
-APP_VERSION="20250106"
+APP_VERSION="20250727"
 # Defaults to /usr/ports or can be set in ${HOME}/.app.sh.rc
 PORTS_DIR=""
 # Used to check the status of apps and more.
@@ -345,7 +347,7 @@ checkRoot () {
 checkSetup () {
     checkRoot
     checkGit
-    if [ `ls "${PORTS_DIR}" | wc -l` -gt 0 ]
+    if [ `ls "${PORTS_DIR}" | sed -n '$='` -gt 0 ]
     then
         error "${PORTS_DIR} is not empty." "The current ports tree must be empty to start the setup process." "Did you mean to \"pull\" (update) the ports tree instead?"
     fi
@@ -540,7 +542,7 @@ cmdDistClean () {
         subCmd "distclean"
     else
         # Are there any files to remove?
-        local c=`ls -Aq "${PORT_DISTFILES}" | wc -l`
+        local c=`ls -Aq "${PORT_DISTFILES}" | sed -n '$='`
         if [ $c -eq 0 ]
         then
             printf "\nThe ports/distfiles are clean already. Nothing to do here.\n\n"
@@ -684,11 +686,11 @@ cmdPreNotice () {
     then
         return
     fi
-    if [ `printf "%s\n" "${OUT_OF_DATE}" | wc -l` -eq 1 ]
+    if [ `printf "%s\n" "${OUT_OF_DATE}" | sed -n '$='` -eq 1 ]
     then
         printf "\nCheck for an advisory for this port? [Y/n] "
     else
-        printf "\nCheck for any advisories for these ports? [Y/n] "
+        printf "\nCheck for advisories for these ports? [Y/n] "
     fi
     read ans
     if [ -z "${ans}" -o "${ans}" = "y" -o "${ans}" = "Y" ]
@@ -906,6 +908,11 @@ subCmd () {
         then
             subConfigConditionalDepends "${p}"
         fi
+		# Thanks to glib20 :(
+		if [ "${action}" = "clean" ]
+		then
+			exception "${p}" "${action}"
+		fi
         if [ -n "${action2}" ]
         then
             make ${action2}
@@ -1071,11 +1078,33 @@ subTryAgain () {
         TRY_AGAIN="${1} "
         return
     fi
-    # Check if we already have the on the list
+    # Check if we already have the port on the list
     if [ `printf "%s" "${TRY_AGAIN}" | grep -cm1 "${1}"` -eq 0 ]
     then
         TRY_AGAIN="${TRY_AGAIN}${1} "
     fi
+}
+# This makes me cry. We need to have exceptions for some ports :(
+# Pass "port" and "extra" (for example, "clean").
+exception () {
+	if [ "${1}" = "glib" -o "${1}" = "glib-bootstrap" -o "${1}" = "gobject-introspection" -o "${1}" = "gobject-introspection-bootstrap" ]
+	then
+		if [ "${2}" = "clean" ]
+		then
+			getPortPath "glib"
+			if [ -d "${PORT_PATH}/work-bootstrap" ]
+			then
+				workMsg "clean exception" "glib20-bootstrap"
+				rm -rf "${PORT_PATH}/work-bootstrap"
+			fi
+			getPortPath "gobject-introspection"
+			if [ -d "${PORT_PATH}/work-bootstrap" ]
+			then
+				workMsg "clean exception" "gobject-introspection-bootstrap"
+				rm -rf "${PORT_PATH}/work-bootstrap"
+			fi
+		fi
+	fi
 }
 
 # A few checks before going further
