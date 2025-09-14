@@ -50,6 +50,9 @@ The following commands require at least one port name to be passed.
     R | Reinstall : Search for a group of installed ports and reinstall them.
     s | showconf  : Show the configuration options for a port only.
     U | Update    : Search for a group of superseded ports and update them.
+    ug | upgrade  : Designed to upgrade the version of an application (like Perl)
+                    to a new default version.
+
 
 Port name is the "base name" of the port. Do not included the current version
 or the new version numbers. For example, to update vim to the latest version 
@@ -75,5 +78,16 @@ on a matched part of a port name. Helpful for updating a group of ports without
 the need to type the entire list. `Reinstall` will search the installed list of
 ports. `Update` will only look at superseded ports. You can search on more than
 one term.
+
+`upgrade` only supports one port at a time. Is designed for default version 
+changes. This is common with Perl but can be used for other applications too.
+The process is:
+ - Any applications linked to the shared object library are identified. These 
+   will be updated as well.
+ - Current version is uninstalled.
+ - DEFAULT_VERSIONS line is added to /etc/make.conf
+ - New version is installed.
+ - DEFAULT_VERSIONS line is removed from /etc/make.conf
+ - Shared object library applications are reinstalled.
 
 

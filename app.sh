@@ -11,7 +11,7 @@
 # second loop.
 #
 # Version - yyyymmdd format of the last change
-APP_VERSION="20250727"
+APP_VERSION="20250914"
 # Defaults to /usr/ports or can be set in ${HOME}/.app.sh.rc
 PORTS_DIR=""
 # Used to check the status of apps and more.
@@ -87,6 +87,8 @@ The following commands require at least one port name to be passed.
  R | Reinstall : Search for a group of installed ports and reinstall them.
  s | showconf  : Show the configuration options for a port only.
  U | Update    : Search for a group of superseded ports and update them.
+ ug | upgrade  : Designed to upgrade the version of an application (like Perl)
+                 to a new default version.
 
 Port name is the \"base name\" of the port. Do not included the current version
 or the new version numbers. For example, to update vim to the latest version 
@@ -112,6 +114,18 @@ on a matched part of a port name. Helpful for updating a group of ports without
 the need to type the entire list. \"Reinstall\" will search the installed list of
 ports. \"Update\" will only look at superseded ports. You can search on more than
 one term.
+
+\"upgrade\" only supports one port at a time. Is designed for default version 
+changes. This is common with Perl but can be used for other applications too.
+The process is:
+ - Any applications linked to the shared object library are identified. These 
+   will be updated as well.
+ - Current version is uninstalled.
+ - DEFAULT_VERSIONS line is added to /etc/make.conf
+ - New version is installed.
+ - DEFAULT_VERSIONS line is removed from /etc/make.conf
+ - Shared object library applications are reinstalled.
+
 "
     printf "%s\n" "${out}"
     exit
@@ -201,6 +215,7 @@ getAppList () {
         fi
     fi
 }
+
 checkAfterRun () {
     if [ -n "${ISSUE}" ]
     then
@@ -307,6 +322,7 @@ checkBeforeRun () {
         s|showconf) CMD="cmdConfigShow";;
         S|setup) cmdSetup; return;;
         U|Update) CMD="Update"; cmdSearchUpdate $@; return;;
+		ug|upgrade) CMD="upgrade"; cmdUpgrade $@; return;;
         V|version) cmdAppVersion; return;;
         W|work) cmdWorkClean; return;;
         *) usage; return;;
@@ -424,6 +440,8 @@ cmdAuto () {
     fi
     # At this point we have at least one port to update
     APP_LIST=`printf "%s" "${OUT_OF_DATE}" | sed 's/-[0-9].*//' | tr '\n' ' '`
+	# Priority sort the list
+	subSortList
     # Run a conditional config check
     subCmd "config-conditional"
     # Make sure everything is clean
@@ -503,23 +521,7 @@ ${p}"
 # Display the port description text for the passed port(s).
 cmdDescription () {
     printf "\nGetting the description(s).\n"
-    descr=""
-    for p in ${APP_LIST}
-    do
-        getPortPath "${p}"
-        tPath="${tPath}\"${PORT_PATH}/pkg-descr\" "
-        if [ -f "${PORT_PATH}/pkg-descr" ]
-        then
-            x=`cat "${PORT_PATH}/pkg-descr"`
-            descr="${descr}
-=> Description for ${p}
-
-${x}
-"
-        fi
-    done 
-    #printf "Using \"less\" to view. Q to close. SPACE, arrows to scroll.\n%s" "${descr}" | less
-    printf "%s" "${descr}"
+	pkg query "\n=> Description for %n\n\n%e" ${APP_LIST}
 }
 # Removes the ports/dist files for the passed ports or all ports.
 # Note: distclean also cleans the port dir
@@ -566,28 +568,47 @@ cmdDistClean () {
 }
 # Display any out of date ports. Used AFTER cmdOutOfDate (or not).
 cmdDisplayOutOfDate () {
-    if [ -z "${OUT_OF_DATE}" ]
-    then
-        printf "\nAll ports are up to date.\n"
-        return
-    fi
-    tmp=""
-    warn="
----------------------------
-IMPORTANT: Recompile first:"
-    tmpPkg=`printf "%s" "${OUT_OF_DATE}" | grep "^pkg-"`
-    tmpRst=`printf "%s" "${OUT_OF_DATE}" | grep "^rust-"`
-    if [ -n "$tmpPkg" -a -n "$tmpRst" ]
-    then
-        tmp="${warn} pkg, then rust"
-    elif [ -n "$tmpPkg" ]
-    then
-        tmp="${warn} pkg"
-    elif [ -n "$tmpRst" ]
-    then
-        tmp="${warn} rust"
-    fi
-    printf "\nFound an update for the following port(s):\n\n%s\n" "${OUT_OF_DATE}${tmp}"
+	if [ -z "${OUT_OF_DATE}" ]
+	then
+		printf "\nAll ports are up to date.\n"
+		return
+	fi
+	warn=""
+	warnNote="should be compiled first."
+	tmpPkg=`printf "%s" "${OUT_OF_DATE}" | grep "^pkg-"`
+	tmpRst=`printf "%s" "${OUT_OF_DATE}" | grep "^rust-"`
+	tmpPrl=`printf "%s" "${OUT_OF_DATE}" | grep "^perl5-"`
+	if [ -n "${tmpPkg}" -a -n "${tmpRst}" ]
+	then
+		warn="pkg, then rust ${warnNote}"
+	elif [ -n "${tmpPkg}" ]
+	then
+		warn="pkg ${warnNote}"
+	elif [ -n "${tmpRst}" ]
+	then
+		warn="rust ${warnNote}"
+	fi
+	if [ -n "${tmpPrl}" ]
+	then
+		# For Perl version change note.
+		tmpPrl=`printf "%s" "${OUT_OF_DATE}" | grep "^perl5-"`
+		tmpOld=${tmpPrl#*perl5-}
+		tmpOld=`printf "%s" "${tmpOld}" | cut -d'.' -f1,2`
+		tmpNew=${tmpPrl#*index has }
+		tmpNew=`printf "%s" "${tmpNew}" | cut -d'.' -f1,2`
+		if [ "${tmpOld}" != "${tmpNew}" ]
+		then
+			warn="${warn}
+
+You will need to use the \"upgrade\" option to correctly install the new version
+of Perl. This will also update any applications using the shared object library."
+		fi
+	fi
+	printf "\nFound an update for the following port(s):\n\n%s\n" "${OUT_OF_DATE}"
+	if [ -n "${warn}" ]
+	then
+		printf "%s\nIMPORTANT: %s\n" "---------------------------" "${warn}"
+	fi
 }
 # Grab the latest ports index without a pull request.
 cmdFetchIndex () {
@@ -763,6 +784,8 @@ cmdQuick () {
 cmdReinstall () {
     checkRoot
     printf "\nReinstall started\n"
+	# Sort the app list
+	subSortList
     # Conditional config check
     subCmd "config-conditional"
     # Clean all the ports.
@@ -843,6 +866,107 @@ cmdTryAgain () {
     subCmd "clean"
     subCmd "reinstall"
     subCmd "clean"
+}
+# Used to upgrade from one default version to another. Mostly for Perl.
+# Could be expanded or broken up to functions to update "everything" linked to
+# a shared lib.
+cmdUpgrade () {
+	checkRoot
+    if [ ! "${2}" -o -n "${3}" ]
+    then
+        error "One installed application name is required to be passed."
+    fi
+	shift
+	# To avoid confusion...
+	upgradeApp="${1}"
+	# The old and new versions should appear in the following line
+	tmp=`pkg version -vI -n "${upgradeApp}"`
+	printf "%s" "${tmp}" | grep -q '<'
+	if [ ${?} -ne 0 ]
+	then
+		error "${upgradeApp} does not need to be upgraded, or can not be upgraded this way."
+	fi
+	newVersion=`printf "%s" "${tmp}" | sed 's/.* //' | cut -d'.' -f1,2`
+	# And we need the old version details too
+	oldVersion=`printf "%s" "${tmp}" | sed 's/ .*//; s/.*-//' | cut -d'.' -f1,2`
+	if [ "${oldVersion}" = "${newVersion}" ]
+	then
+		error "There is an update for ${upgradeApp} but it is not a version change. A standard update is all that is required."
+	fi
+	# Get a list of apps using the shared object library
+	libList=`pkg query %b "${upgradeApp}"`
+	APP_LIST=""
+	IFS="
+"
+	for l in ${libList}
+	do
+		APP_LIST="${APP_LIST}`pkg shlib -qR ${l}`
+"
+	done
+	unset IFS
+	if [ -n "${APP_LIST}" ]
+	then
+		APP_LIST=`printf "%s" "${APP_LIST}" | sort -n | uniq | tr "\n" " " | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'`
+	fi
+	# Uninstall the current version
+	getPortPath "${upgradeApp}"
+	cd "${PORT_PATH}"
+	workMsg "clean" "${upgradeApp}"
+	make clean
+	workMsg "deinstall" "${upgradeApp}"
+	make deinstall
+	# Clean up the make.conf of a possible error.
+	grep -q "${upgradeApp}" "/etc/make.conf"
+	if [ ${?} -eq 0 ]
+	then
+		clean=""
+		while IFS= read -r l || [ -n "${l}" ]
+		do
+			printf "%s" "${l}" | grep -v "^#" | grep -q "DEFAULT_VERSIONS.*${upgradeApp}"
+			if [ ${?} -eq 1 ]
+			then
+				clean="${clean}${l}
+"
+			fi 
+		done < "/etc/make.conf"
+		printf "%s\n" "${clean}" > "/etc/make.conf"
+	fi
+	# And add the new version
+	printf "DEFAULT_VERSIONS+= %s=%s\n" "${upgradeApp}" "${newVersion}" >> "/etc/make.conf"
+	# Locate the new version path
+	PORT_PATH=`awk -F'|' '$upgradeApp ~ /^'${upgradeApp}'-([0-9._])+/ && !/^'${upgradeApp}'-([0-9._])+([\-])+/ {print $2}' "${PORT_INDEX}"`
+	cd "${PORT_PATH}"
+	workMsg "clean" "${upgradeApp}"
+	make clean
+	workMsg "config-conditional" "${upgradeApp}"
+	make config-conditional
+	workMsg "build" "${upgradeApp}"
+	make build
+	workMsg "reinstall" "${upgradeApp}"
+	make reinstall
+	workMsg "clean" "${upgradeApp}"
+	make clean
+	# New version should be installed, remove the DEFAULT_VERSIONS line.
+	clean=""
+	while IFS= read -r l || [ -n "${l}" ]
+	do
+		printf "%s" "${l}" | grep -v "^#" | grep -q "DEFAULT_VERSIONS.*perl5"
+		if [ ${?} -eq 1 ]
+		then
+			clean="${clean}${l}
+"
+		fi 
+	done < "/etc/make.conf"
+	printf "%s" "${clean}" > "/etc/make.conf"
+	# Reinstall linked apps	
+	if [ -n "${APP_LIST}" ]
+	then
+		printf "\nProcessing any shared object library apps.\n"
+		cmdReinstall
+	fi
+	# Should be done.
+	printf "\nA new default version of %s should now be installed.\n\n" "${upgradeApp}"
+	exit	
 }
 # Look for any work directories in a port, list, then clean them.
 # How does this happen? Build failures are my guess.
@@ -1071,6 +1195,44 @@ subSearchReinstall () {
         printf "\nNothing to do here.\n\n"
     fi
 }
+# Move key items to the start of the app list.
+# !! This is far from a complete list !!
+subSortList () {
+	if [ -z "${APP_LIST}" ]
+	then
+		return
+	fi
+	# Key items in order of importance
+	keyItem="pkg indexinfo rust readline libiconv gettext-runtime ncurses m4 perl5 libnghttp2 libffi libunwind autoconf automake pcre2 python311 curl"
+	first=""
+	second=""
+	# Get the priority items
+	for p in ${keyItem}
+	do
+		printf "%s" "${APP_LIST}" | grep -qw "${p}"
+		if [ ${?} -eq 0 ]
+		then
+			first="${first}${p} "
+		fi
+	done
+	# And everything else
+	for p in ${APP_LIST}
+	do
+		printf "%s" "${keyItem}" | grep -qw "${p}"
+		if [ ${?} -eq 1 ]
+		then
+			second="${second}${p} "
+		fi
+	done
+	# APP_LIST is now split into two (or not)
+	if [ -z "${first}" ]
+	then
+		# Nothing to do with this list.
+		return
+	fi
+	# Need to make sure the first list is also in the correct order for building
+	APP_LIST="${first}${second}"
+}
 # We only want to "try again" once. If this passed port is already on the list, we skip it
 subTryAgain () {
     if [ -z "${TRY_AGAIN}" ]
@@ -1085,7 +1247,7 @@ subTryAgain () {
     fi
 }
 # This makes me cry. We need to have exceptions for some ports :(
-# Pass "port" and "extra" (for example, "clean").
+# Pass "port" and "extra" (for example, "glib" "clean").
 exception () {
 	if [ "${1}" = "glib" -o "${1}" = "glib-bootstrap" -o "${1}" = "gobject-introspection" -o "${1}" = "gobject-introspection-bootstrap" ]
 	then
@@ -1106,6 +1268,7 @@ exception () {
 		fi
 	fi
 }
+
 
 # A few checks before going further
 checkBeforeRun "$@"
