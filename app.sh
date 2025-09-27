@@ -11,7 +11,7 @@
 # second loop.
 #
 # Version - yyyymmdd format of the last change
-APP_VERSION="20250914"
+APP_VERSION="20250927"
 # Defaults to /usr/ports or can be set in ${HOME}/.app.sh.rc
 PORTS_DIR=""
 # Used to check the status of apps and more.
@@ -877,10 +877,46 @@ cmdUpgrade () {
         error "One installed application name is required to be passed."
     fi
 	shift
-	# To avoid confusion...
+	# What are we looking for
 	upgradeApp="${1}"
 	# The old and new versions should appear in the following line
-	tmp=`pkg version -vI -n "${upgradeApp}"`
+	tmp=$(pkg version -vI -n "${upgradeApp}")
+	if [ -z "${tmp}" ]
+	then
+		# Search incase of a possible error like "perl" instead of "perl5"
+		tmp=$(pkg query -ix %n "${upgradeApp}")
+		if [ -n "${tmp}" ]
+		then
+			# Now we could have more than one result :(
+			count=$(printf "%s" "${tmp}" | sed -n '$=')
+			if [ ${count} -gt 1 ]
+			then
+				printf "\nThe string \"%s\" could mean any of the following:\n\n" "${upgradeApp}"
+				IFS="
+"
+				for l in ${tmp}
+				do
+					printf " %s\n" "${l}"
+				done
+				unset IFS
+				printf "\nTry again with the exact application name.\n\n"
+				exit 1
+			elif [ ${count} -eq 1 ]
+			then
+				# That is what we want
+				upgradeApp="${tmp}"
+				tmp=$(pkg version -vI -n "${upgradeApp}")
+			else
+				# Possible error? Clear tmp
+				tmp=""
+			fi
+		fi
+	fi
+	if [ -z "${tmp}" ]
+	then
+		# Still blank?
+		error "Unable to locate an installed app from the search string \"${upgradeApp}\"."
+	fi	
 	printf "%s" "${tmp}" | grep -q '<'
 	if [ ${?} -ne 0 ]
 	then
@@ -950,7 +986,7 @@ cmdUpgrade () {
 	clean=""
 	while IFS= read -r l || [ -n "${l}" ]
 	do
-		printf "%s" "${l}" | grep -v "^#" | grep -q "DEFAULT_VERSIONS.*perl5"
+		printf "%s" "${l}" | grep -v "^#" | grep -q "DEFAULT_VERSIONS.*${upgradeApp}"
 		if [ ${?} -eq 1 ]
 		then
 			clean="${clean}${l}
