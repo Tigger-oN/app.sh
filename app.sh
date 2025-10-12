@@ -11,7 +11,7 @@
 # second loop.
 #
 # Version - yyyymmdd format of the last change
-APP_VERSION="20250927"
+APP_VERSION="20251012"
 # Defaults to /usr/ports or can be set in ${HOME}/.app.sh.rc
 PORTS_DIR=""
 # Used to check the status of apps and more.
@@ -68,6 +68,7 @@ The following commands require at least one port name to be passed.
  b | build     : Configure (if needed) and build but not install the requested
                  application(s).
  c | config    : Set configuration options for a port only.
+ dc | depchain : Display the full chain of dependencies for a port or list.
  dp | depend   : Display dependencies and reliances for a port or list.
  ds | descript : Show the port description for a port or list.
  d | rm | del | delete | remove :
@@ -98,6 +99,9 @@ or the new version numbers. For example, to update vim to the latest version
 
 \"quick\" is the most convenient option for bringing ports up to date. It rolls
 the common commands into one call and reduces the amount of typing.
+
+\"depchain\" will recurse through all the dependencies of a port. Each depth
+will be indented futher. Some ports (like \"mu\") will produce a very long list.
 
 \"depend\" will display a two column list. Items on the left will have a reliance
 on the right. Results are limited to installed ports.
@@ -309,6 +313,7 @@ checkBeforeRun () {
         c|config) CMD="cmdConfig";;
         D|deinstall) CMD="cmdDeinstall";;
         d|rm|del|delete|remove) CMD="cmdDelete";;
+        dc|depchain) CMD="cmdDependChain";;
         dp|depend) CMD="cmdDepend";;
         ds|descript) CMD="cmdDescription";;
         F|fetchindex) cmdFetchIndex; return;;
@@ -484,6 +489,53 @@ cmdDeinstall () {
     checkRoot
     printf "\nDeinstalling the requested port(s).\n"
     subCmd "deinstall"
+}
+# Display the chain of dependencies for a port.
+cmdDependChain () {
+	for p in ${APP_LIST}
+	do
+		# First confirm if valid
+		chkApp="$(pkg query "%n" "${p}")"
+		if [ -n "${chkApp}" ]
+		then
+			printf "\n%s dependency chain:\n" "${p}"
+			DP_CHAIN_DEPTH=0
+			# Need to check there is at least one dependency before passing off
+			# to the loop.
+			chkApp="$(pkg query "%do" "${p}")"
+			if [ -n "${chkApp}" ]
+			then
+				subDependLoop "${p}"
+			else
+				printf "  - No dependencies\n"
+			fi
+		fi
+	done
+}
+# Recursive loop through all the dependencies for a port.
+subDependLoop () {
+	# Safety catch. Should not be needed.
+	if [ -z "${1}" ]
+	then
+		return
+	fi
+	# Look for the DP list for the passed value
+	DP_CHAIN_DEPTH=$((DP_CHAIN_DEPTH + 1))
+	list="$(pkg query "%do" "${1}")"
+	if [ -n "${list}" ]
+	then
+		(
+			IFS="
+"
+			for s in ${list}
+			do
+				printf "%*s- %s\n" $((DP_CHAIN_DEPTH * 2)) "" "${s}"
+				subDependLoop "${s}"
+			done
+			unset IFS
+		)
+	fi
+	DP_CHAIN_DEPTH=$((DP_CHAIN_DEPTH - 1))
 }
 # Display dependencies and reliances for a port.
 cmdDepend () {

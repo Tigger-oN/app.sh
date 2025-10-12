@@ -31,6 +31,7 @@ The following commands require at least one port name to be passed.
     b | build     : Configure (if needed) and build but not install the requested
                     application(s).
     c | config    : Set configuration options for a port only.
+    dc | depchain : Display the full chain of dependencies for a port or list.
     dp | depend   : Display dependencies and reliances for a port or list.
     ds | descript : Show the port description for a port or list.
     d | rm | del | delete | remove :
@@ -62,6 +63,9 @@ or the new version numbers. For example, to update vim to the latest version
 
 `quick` is the most convenient option for bringing ports up to date. It rolls
 the common commands into one call and reduces the amount of typing.
+
+`depchain` will recurse through all the dependencies of a port. Each depth
+will be indented futher. Some ports (like "mu") will produce a very long list.
 
 `depend` will display a two column list. Items on the left will have a reliance
 on the right. Results are limited to installed ports.
